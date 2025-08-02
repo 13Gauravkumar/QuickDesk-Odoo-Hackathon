@@ -20,7 +20,10 @@ import {
   Star,
   TrendingUp,
   Workflow,
-  Download
+  Download,
+  Trash2,
+  Archive,
+  RotateCcw
 } from 'lucide-react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { format } from 'date-fns';
@@ -50,7 +53,8 @@ const Tickets = () => {
     highPriority: false,
     unassigned: false,
     myTickets: false,
-    recentActivity: false
+    recentActivity: false,
+    resolved: false
   });
 
   // Fetch tickets with filters
@@ -118,13 +122,13 @@ const Tickets = () => {
       socket.on('ticket:updated', (data) => {
         queryClient.invalidateQueries(['tickets']);
         queryClient.invalidateQueries(['ticket', data.ticket._id]);
-        toast.info(`Ticket updated: ${data.ticket.subject}`);
+        toast(`Ticket updated: ${data.ticket.subject}`);
       });
 
       socket.on('ticket:deleted', (data) => {
         queryClient.invalidateQueries(['tickets']);
         queryClient.removeQueries(['ticket', data.ticketId]);
-        toast.info('Ticket deleted');
+        toast('Ticket deleted');
       });
 
       socket.on('ticket:assigned', (data) => {
@@ -135,7 +139,7 @@ const Tickets = () => {
 
       socket.on('ticket:commentAdded', (data) => {
         queryClient.invalidateQueries(['ticket', data.ticketId]);
-        toast.info(`New comment on ticket: ${data.ticket.subject}`);
+        toast(`New comment on ticket: ${data.ticket.subject}`);
       });
 
       socket.on('ticket:bulk_updated', (data) => {
@@ -343,6 +347,115 @@ const Tickets = () => {
   };
 
   // Export tickets function
+  // Delete ticket mutation
+  const deleteTicketMutation = useMutation(
+    async (ticketId) => {
+      const response = await fetch(`/api/tickets/${ticketId}`, {
+        method: 'DELETE',
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        }
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || 'Failed to delete ticket');
+      }
+      
+      return response.json();
+    },
+    {
+      onSuccess: (data, ticketId) => {
+        toast.success('Ticket deleted successfully');
+        queryClient.invalidateQueries(['tickets']);
+        queryClient.removeQueries(['ticket', ticketId]);
+      },
+      onError: (error) => {
+        toast.error(error.message || 'Failed to delete ticket');
+      }
+    }
+  );
+
+  // Handle delete ticket
+  const handleDeleteTicket = async (ticketId, ticketSubject) => {
+    if (window.confirm(`Are you sure you want to delete ticket "${ticketSubject}"? This action cannot be undone.`)) {
+      deleteTicketMutation.mutate(ticketId);
+    }
+  };
+
+  // Handle resolve ticket
+  const resolveTicketMutation = useMutation(
+    async ({ ticketId, resolution }) => {
+      const response = await fetch(`/api/tickets/${ticketId}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        },
+        body: JSON.stringify({
+          status: 'resolved',
+          resolution: resolution
+        })
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || 'Failed to resolve ticket');
+      }
+      
+      return response.json();
+    },
+    {
+      onSuccess: (data) => {
+        toast.success('Ticket resolved successfully');
+        queryClient.invalidateQueries(['tickets']);
+      },
+      onError: (error) => {
+        toast.error(error.message || 'Failed to resolve ticket');
+      }
+    }
+  );
+
+  // Handle resolve ticket with resolution note
+  const handleResolveTicket = async (ticketId, ticketSubject) => {
+    const resolution = prompt(`Please provide a resolution note for ticket "${ticketSubject}":`);
+    if (resolution !== null) {
+      resolveTicketMutation.mutate({ ticketId, resolution });
+    }
+  };
+
+  // Handle reopen ticket
+  const reopenTicketMutation = useMutation(
+    async (ticketId) => {
+      const response = await fetch(`/api/tickets/${ticketId}`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('token')}`
+        },
+        body: JSON.stringify({
+          status: 'open'
+        })
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.message || 'Failed to reopen ticket');
+      }
+      
+      return response.json();
+    },
+    {
+      onSuccess: (data) => {
+        toast.success('Ticket reopened successfully');
+        queryClient.invalidateQueries(['tickets']);
+      },
+      onError: (error) => {
+        toast.error(error.message || 'Failed to reopen ticket');
+      }
+    }
+  );
+
   const handleExportTickets = async (format) => {
     try {
       const token = localStorage.getItem('token');
@@ -351,7 +464,7 @@ const Tickets = () => {
         return;
       }
 
-      toast.loading('Preparing tickets for export...');
+      const loadingToast = toast.loading('Preparing tickets for export...');
       
       const params = new URLSearchParams();
       params.append('format', format);
@@ -366,6 +479,8 @@ const Tickets = () => {
           'Authorization': `Bearer ${token}`
         }
       });
+
+      toast.dismiss(loadingToast);
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
@@ -492,6 +607,7 @@ const Tickets = () => {
               {key === 'unassigned' && <User className="w-3 h-3" />}
               {key === 'myTickets' && <Star className="w-3 h-3" />}
               {key === 'recentActivity' && <TrendingUp className="w-3 h-3" />}
+              {key === 'resolved' && <CheckCircle className="w-3 h-3" />}
               <span className="capitalize">{key.replace(/([A-Z])/g, ' $1').trim()}</span>
               {getSmartFilterCount(key) > 0 && (
                 <span className="bg-white px-1 rounded-full text-xs">
@@ -675,6 +791,19 @@ const Tickets = () => {
                 <CheckCircle className="w-3 h-3" />
                 <span>Resolve</span>
               </button>
+              {(user?.role === 'admin' || user?.role === 'agent') && (
+                <button
+                  onClick={() => {
+                    if (window.confirm(`Are you sure you want to delete ${selectedTickets.length} ticket(s)? This action cannot be undone.`)) {
+                      handleBulkOperation('delete');
+                    }
+                  }}
+                  className="flex items-center space-x-1 px-3 py-1 bg-red-600 text-white rounded text-sm hover:bg-red-700"
+                >
+                  <Trash2 className="w-3 h-3" />
+                  <span>Delete Selected</span>
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -764,7 +893,23 @@ const Tickets = () => {
                           {ticket.category && (
                             <span>Category: {ticket.category.name}</span>
                           )}
+                          {ticket.status === 'resolved' && ticket.resolvedAt && (
+                            <span className="text-green-600">Resolved {formatDate(ticket.resolvedAt)}</span>
+                          )}
                         </div>
+                        
+                        {/* Resolution Note for Resolved Tickets */}
+                        {ticket.status === 'resolved' && ticket.resolution && (
+                          <div className="mt-2 p-3 bg-green-50 border border-green-200 rounded-lg">
+                            <div className="flex items-start space-x-2">
+                              <CheckCircle className="w-4 h-4 text-green-600 mt-0.5 flex-shrink-0" />
+                              <div className="flex-1">
+                                <p className="text-sm font-medium text-green-800">Resolution Note:</p>
+                                <p className="text-sm text-green-700 mt-1">{ticket.resolution}</p>
+                              </div>
+                            </div>
+                          </div>
+                        )}
                       </div>
                       
                       <div className="flex items-center space-x-2">
@@ -791,6 +936,42 @@ const Tickets = () => {
                         <div className="flex items-center space-x-1">
                           <MessageSquare className="w-4 h-4 text-gray-500" />
                           <span className="text-sm text-gray-600">{ticket.comments?.length || 0}</span>
+                        </div>
+
+                        {/* Ticket Actions */}
+                        <div className="flex items-center space-x-1 ml-4 border-l border-gray-200 pl-4">
+                          {/* Resolve/Reopen Button */}
+                          {ticket.status === 'resolved' ? (
+                            <button
+                              onClick={() => reopenTicketMutation.mutate(ticket._id)}
+                              disabled={reopenTicketMutation.isLoading}
+                              className="p-1 hover:bg-blue-100 rounded transition-colors text-blue-600"
+                              title="Reopen Ticket"
+                            >
+                              <RotateCcw className="w-4 h-4" />
+                            </button>
+                          ) : (
+                            <button
+                              onClick={() => handleResolveTicket(ticket._id, ticket.subject)}
+                              disabled={resolveTicketMutation.isLoading}
+                              className="p-1 hover:bg-green-100 rounded transition-colors text-green-600"
+                              title="Resolve Ticket"
+                            >
+                              <CheckCircle className="w-4 h-4" />
+                            </button>
+                          )}
+
+                          {/* Delete Button - Only for admin or ticket creator */}
+                          {(user?.role === 'admin' || ticket.createdBy?._id === user?.id) && (
+                            <button
+                              onClick={() => handleDeleteTicket(ticket._id, ticket.subject)}
+                              disabled={deleteTicketMutation.isLoading}
+                              className="p-1 hover:bg-red-100 rounded transition-colors text-red-600"
+                              title="Delete Ticket"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          )}
                         </div>
                       </div>
                     </div>

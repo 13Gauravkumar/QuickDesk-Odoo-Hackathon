@@ -555,4 +555,188 @@ router.get('/trends', authenticateToken, async (req, res) => {
   }
 });
 
+// @route   GET /api/analytics/export
+// @desc    Export analytics data
+// @access  Private (Admin/Agent only)
+router.get('/export', authenticateToken, authorize(['admin', 'agent']), async (req, res) => {
+  try {
+    const { format = 'csv', range = '30', startDate, endDate } = req.query;
+    
+    // Calculate date range
+    let start, end;
+    if (startDate && endDate) {
+      start = new Date(startDate);
+      end = new Date(endDate);
+    } else {
+      end = new Date();
+      start = new Date(end.getTime() - parseInt(range) * 24 * 60 * 60 * 1000);
+    }
+    
+    // Get analytics data
+    const ticketStats = await Ticket.aggregate([
+      {
+        $match: {
+          createdAt: { $gte: start, $lte: end }
+        }
+      },
+      {
+        $facet: {
+          total: [{ $count: 'count' }],
+          byStatus: [
+            {
+              $group: {
+                _id: '$status',
+                count: { $sum: 1 }
+              }
+            }
+          ],
+          byPriority: [
+            {
+              $group: {
+                _id: '$priority',
+                count: { $sum: 1 }
+              }
+            }
+          ],
+          byCategory: [
+            {
+              $lookup: {
+                from: 'categories',
+                localField: 'category',
+                foreignField: '_id',
+                as: 'categoryInfo'
+              }
+            },
+            {
+              $group: {
+                _id: '$categoryInfo.name',
+                count: { $sum: 1 }
+              }
+            }
+          ],
+          dailyStats: [
+            {
+              $group: {
+                _id: {
+                  $dateToString: { format: '%Y-%m-%d', date: '$createdAt' }
+                },
+                count: { $sum: 1 }
+              }
+            },
+            { $sort: { '_id': 1 } }
+          ]
+        }
+      }
+    ]);
+    
+    // Get user activity
+    const userActivity = await User.aggregate([
+      {
+        $match: {
+          lastActiveAt: { $gte: start, $lte: end }
+        }
+      },
+      {
+        $group: {
+          _id: '$role',
+          count: { $sum: 1 },
+          activeUsers: {
+            $sum: {
+              $cond: [
+                { $gte: ['$lastActiveAt', new Date(Date.now() - 24 * 60 * 60 * 1000)] },
+                1,
+                0
+              ]
+            }
+          }
+        }
+      }
+    ]);
+    
+    const analyticsData = {
+      period: {
+        start: start.toISOString(),
+        end: end.toISOString()
+      },
+      ticketStats: ticketStats[0] || {},
+      userActivity: userActivity,
+      exportDate: new Date().toISOString()
+    };
+    
+    if (format === 'csv') {
+      // Create CSV content
+      const csvRows = [
+        ['Analytics Report'],
+        ['Period Start', 'Period End', 'Export Date'],
+        [start.toISOString(), end.toISOString(), new Date().toISOString()],
+        [],
+        ['Ticket Statistics'],
+        ['Metric', 'Value']
+      ];
+      
+      // Add ticket stats
+      if (ticketStats[0]?.total?.[0]?.count) {
+        csvRows.push(['Total Tickets', ticketStats[0].total[0].count]);
+      }
+      
+      // Add status breakdown
+      if (ticketStats[0]?.byStatus) {
+        csvRows.push([]);
+        csvRows.push(['Status Breakdown']);
+        csvRows.push(['Status', 'Count']);
+        ticketStats[0].byStatus.forEach(stat => {
+          csvRows.push([stat._id, stat.count]);
+        });
+      }
+      
+      // Add priority breakdown
+      if (ticketStats[0]?.byPriority) {
+        csvRows.push([]);
+        csvRows.push(['Priority Breakdown']);
+        csvRows.push(['Priority', 'Count']);
+        ticketStats[0].byPriority.forEach(stat => {
+          csvRows.push([stat._id, stat.count]);
+        });
+      }
+      
+      // Add daily stats
+      if (ticketStats[0]?.dailyStats) {
+        csvRows.push([]);
+        csvRows.push(['Daily Statistics']);
+        csvRows.push(['Date', 'Tickets Created']);
+        ticketStats[0].dailyStats.forEach(stat => {
+          csvRows.push([stat._id, stat.count]);
+        });
+      }
+      
+      // Add user activity
+      if (userActivity.length > 0) {
+        csvRows.push([]);
+        csvRows.push(['User Activity']);
+        csvRows.push(['Role', 'Total Users', 'Active Users']);
+        userActivity.forEach(stat => {
+          csvRows.push([stat._id, stat.count, stat.activeUsers]);
+        });
+      }
+      
+      const csvContent = csvRows.map(row => 
+        row.map(cell => `"${cell}"`).join(',')
+      ).join('\n');
+      
+      res.setHeader('Content-Type', 'text/csv');
+      res.setHeader('Content-Disposition', `attachment; filename=analytics-report-${new Date().toISOString().split('T')[0]}.csv`);
+      res.send(csvContent);
+    } else {
+      // Return JSON
+      res.json({
+        success: true,
+        data: analyticsData
+      });
+    }
+  } catch (error) {
+    console.error('Analytics export error:', error);
+    res.status(500).json({ message: 'Error exporting analytics data' });
+  }
+});
+
 module.exports = router; 

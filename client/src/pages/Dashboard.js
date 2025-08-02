@@ -48,11 +48,14 @@ import {
   RefreshCw,
   Play,
   Pause,
-  StopCircle
+  StopCircle,
+  Bot,
+  User
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { format } from 'date-fns';
 import toast from 'react-hot-toast';
+import ChatbotWidget from '../components/ChatbotWidget';
 
 const Dashboard = () => {
   const { user } = useAuth();
@@ -68,6 +71,7 @@ const Dashboard = () => {
   });
   const [activeUsers, setActiveUsers] = useState([]);
   const [liveActivity, setLiveActivity] = useState([]);
+  const [lastStatsUpdate, setLastStatsUpdate] = useState(new Date());
 
   // Real-time updates for all user roles
   useEffect(() => {
@@ -84,7 +88,7 @@ const Dashboard = () => {
       });
 
       socket.on('ticket:updated', (data) => {
-        toast.info(`Ticket updated: ${data.ticket.subject}`);
+        toast(`Ticket updated: ${data.ticket.subject}`);
         addLiveActivity('ticket_updated', data.ticket);
       });
 
@@ -104,7 +108,7 @@ const Dashboard = () => {
       });
 
       socket.on('ticket:commentAdded', (data) => {
-        toast.info(`New comment on ticket: ${data.ticket.subject}`);
+        toast(`New comment on ticket: ${data.ticket.subject}`);
         addLiveActivity('comment_added', data.ticket);
       });
 
@@ -118,14 +122,14 @@ const Dashboard = () => {
 
       socket.on('user:updated', (data) => {
         if (user?.role === 'admin') {
-          toast.info(`User updated: ${data.user.name}`);
+          toast(`User updated: ${data.user.name}`);
           addLiveActivity('user_updated', data.user);
         }
       });
 
       socket.on('user:deleted', (data) => {
         if (user?.role === 'admin') {
-          toast.info(`User deleted: ${data.userId}`);
+          toast(`User deleted: ${data.userId}`);
           addLiveActivity('user_deleted', { userId: data.userId });
         }
       });
@@ -140,7 +144,7 @@ const Dashboard = () => {
 
       socket.on('category:updated', (data) => {
         if (user?.role === 'admin') {
-          toast.info(`Category updated: ${data.category.name}`);
+          toast(`Category updated: ${data.category.name}`);
           addLiveActivity('category_updated', data.category);
         }
       });
@@ -148,7 +152,7 @@ const Dashboard = () => {
       // Agent-specific events
       socket.on('agent:status_changed', (data) => {
         if (user?.role === 'agent' || user?.role === 'admin') {
-          toast.info(`Agent ${data.agent.name} is now ${data.status}`);
+          toast(`Agent ${data.agent.name} is now ${data.status}`);
           addLiveActivity('agent_status_changed', data);
         }
       });
@@ -174,10 +178,60 @@ const Dashboard = () => {
 
       // Dashboard stats updates
       socket.on('dashboard:stats:updated', (data) => {
+        console.log('Dashboard stats updated:', data);
         setRealTimeStats(prev => ({
           ...prev,
           lastUpdate: new Date()
         }));
+        
+        // Update specific stats based on the event type
+        if (data.type === 'ticket_created') {
+          setRealTimeStats(prev => ({
+            ...prev,
+            totalTickets: (prev.totalTickets || 0) + 1,
+            openTickets: (prev.openTickets || 0) + 1
+          }));
+        } else if (data.type === 'ticket_resolved') {
+          setRealTimeStats(prev => ({
+            ...prev,
+            resolvedTickets: (prev.resolvedTickets || 0) + 1,
+            openTickets: Math.max(0, (prev.openTickets || 0) - 1)
+          }));
+        } else if (data.type === 'ticket_in_progress') {
+          setRealTimeStats(prev => ({
+            ...prev,
+            inProgressTickets: (prev.inProgressTickets || 0) + 1,
+            openTickets: Math.max(0, (prev.openTickets || 0) - 1)
+          }));
+        } else if (data.type === 'ticket_reopened') {
+          setRealTimeStats(prev => ({
+            ...prev,
+            openTickets: (prev.openTickets || 0) + 1,
+            resolvedTickets: Math.max(0, (prev.resolvedTickets || 0) - 1)
+          }));
+        }
+      });
+
+      // Real-time stats refresh
+      socket.on('stats:refresh', (newStats) => {
+        console.log('Refreshing stats with:', newStats);
+        setRealTimeStats(prev => ({
+          ...prev,
+          ...newStats,
+          lastUpdate: new Date()
+        }));
+        setLastStatsUpdate(new Date());
+      });
+
+      // Handle stats refresh request
+      socket.on('stats:refresh:response', (newStats) => {
+        console.log('Received stats refresh response:', newStats);
+        setRealTimeStats(prev => ({
+          ...prev,
+          ...newStats,
+          lastUpdate: new Date()
+        }));
+        setLastStatsUpdate(new Date());
       });
 
       // Knowledge base events
@@ -195,8 +249,34 @@ const Dashboard = () => {
       socket.on('notification:new', (notification) => {
         setNotifications(prev => [notification, ...prev.slice(0, 9)]);
         toast(notification.message, {
-          icon: notification.type === 'urgent' ? '🔴' : '🔵'
+          icon: notification.type === 'urgent' ? '🔴' : '🔵',
+          duration: notification.type === 'urgent' ? 6000 : 4000,
+          style: {
+            background: notification.type === 'urgent' ? '#ef4444' : '#3b82f6',
+            color: '#ffffff'
+          }
         });
+      });
+
+      // Enhanced notifications for different event types
+      socket.on('notification:sla_breach', (notification) => {
+        toast.error(`SLA Breach: ${notification.message}`, {
+          duration: 8000,
+          icon: '⚠️'
+        });
+        addLiveActivity('sla_breach', notification);
+      });
+
+      socket.on('notification:system_alert', (notification) => {
+        toast(notification.message, {
+          icon: '🚨',
+          duration: 6000,
+          style: {
+            background: '#f59e0b',
+            color: '#ffffff'
+          }
+        });
+        addLiveActivity('system_alert', notification);
       });
 
       // Performance metrics updates
@@ -221,10 +301,14 @@ const Dashboard = () => {
           socket.off('system:status_update');
           socket.off('users:active_update');
           socket.off('dashboard:stats:updated');
-          socket.off('knowledge:article_viewed');
-          socket.off('knowledge:article_rated');
-          socket.off('notification:new');
-          socket.off('performance:metrics_update');
+                  socket.off('knowledge:article_viewed');
+        socket.off('knowledge:article_rated');
+        socket.off('notification:new');
+        socket.off('notification:sla_breach');
+        socket.off('notification:system_alert');
+        socket.off('performance:metrics_update');
+        socket.off('stats:refresh');
+        socket.off('stats:refresh:response');
         }
       };
     }
@@ -309,42 +393,58 @@ const Dashboard = () => {
     ...realTimeStats
   };
 
+  // Add periodic refresh for stats (every 30 seconds)
+  useEffect(() => {
+    const interval = setInterval(() => {
+      // Refetch stats to ensure accuracy
+      if (socket && socket.connected) {
+        socket.emit('request:stats_refresh');
+      }
+    }, 30000); // 30 seconds
+
+    return () => clearInterval(interval);
+  }, [socket]);
+
   const statsCards = [
     {
       title: 'Total Tickets',
       value: combinedStats?.totalTickets || 0,
       icon: Ticket,
       color: 'bg-blue-500',
-      change: '+12% from last month',
+      change: `${combinedStats?.totalTickets || 0} total`,
       trend: 'up',
-      realTime: true
+      realTime: true,
+      description: 'All tickets in the system'
     },
     {
       title: 'Open Tickets',
       value: combinedStats?.openTickets || 0,
       icon: AlertCircle,
       color: 'bg-orange-500',
-      change: '5 new today',
-      trend: 'up',
-      realTime: true
+      change: `${combinedStats?.openTickets || 0} pending`,
+      trend: combinedStats?.openTickets > 0 ? 'up' : 'stable',
+      realTime: true,
+      description: 'Tickets awaiting response'
     },
     {
       title: 'In Progress',
       value: combinedStats?.inProgressTickets || 0,
       icon: Clock,
       color: 'bg-yellow-500',
-      change: '3 being worked on',
+      change: `${combinedStats?.inProgressTickets || 0} active`,
       trend: 'stable',
-      realTime: true
+      realTime: true,
+      description: 'Tickets being worked on'
     },
     {
       title: 'Resolved',
       value: combinedStats?.resolvedTickets || 0,
       icon: CheckCircle,
       color: 'bg-green-500',
-      change: '+8 this week',
+      change: `${combinedStats?.resolvedTickets || 0} completed`,
       trend: 'up',
-      realTime: true
+      realTime: true,
+      description: 'Successfully resolved tickets'
     }
   ];
 
@@ -373,6 +473,14 @@ const Dashboard = () => {
         icon: Brain,
         link: '/knowledge-base',
         color: 'bg-indigo-500 hover:bg-indigo-600',
+        role: 'all'
+      },
+      {
+        title: 'My Profile',
+        description: 'Update your profile and settings',
+        icon: User,
+        link: '/profile',
+        color: 'bg-gray-500 hover:bg-gray-600',
         role: 'all'
       }
     ];
@@ -433,6 +541,22 @@ const Dashboard = () => {
           link: '/admin/workflow',
           color: 'bg-orange-500 hover:bg-orange-600',
           role: 'admin'
+        },
+        {
+          title: 'AI Agent Dashboard',
+          description: 'Monitor AI agent performance',
+          icon: Bot,
+          link: '/ai-agent',
+          color: 'bg-teal-500 hover:bg-teal-600',
+          role: 'admin'
+        },
+        {
+          title: 'System Reports',
+          description: 'Generate and export reports',
+          icon: BarChart3,
+          link: '/analytics',
+          color: 'bg-green-500 hover:bg-green-600',
+          role: 'admin'
         }
       );
     }
@@ -487,75 +611,105 @@ const Dashboard = () => {
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
-      {/* Enhanced Header with Real-time Indicators */}
-      <div className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-4">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center space-x-4">
-            <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Dashboard</h1>
-            <div className="flex items-center space-x-2">
-              <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-              <span className="text-sm text-gray-600 dark:text-gray-400">Live</span>
-            </div>
-            <div className="flex items-center space-x-4 text-sm text-gray-600 dark:text-gray-400">
-              <div className="flex items-center space-x-1">
-                <Users className="w-4 h-4" />
-                <span>{activeUsers.length} active users</span>
+      <div className="p-6 max-w-7xl mx-auto">
+        {/* Chatbot Widget */}
+        <ChatbotWidget />
+        {/* Real-time Status Bar */}
+        <div className="mb-6 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700 p-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-6">
+              <div className="flex items-center space-x-2">
+                <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+                <span className="text-sm text-gray-600 dark:text-gray-400">System Online</span>
               </div>
-              <div className="flex items-center space-x-1">
-                <Zap className="w-4 h-4" />
-                <span>{liveActivity.length} activities/min</span>
+              <div className="flex items-center space-x-2">
+                <Users className="w-4 h-4 text-blue-500" />
+                <span className="text-sm text-gray-600 dark:text-gray-400">{activeUsers.length} Active Users</span>
+              </div>
+              <div className="flex items-center space-x-2">
+                <Zap className="w-4 h-4 text-yellow-500" />
+                <span className="text-sm text-gray-600 dark:text-gray-400">{liveActivity.length} Activities/min</span>
               </div>
             </div>
-          </div>
-          <div className="flex items-center space-x-3">
-            <div className="relative">
-              <Bell className="w-5 h-5 text-gray-600 hover:text-gray-800 cursor-pointer" />
-              {notifications.length > 0 && (
-                <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full w-4 h-4 flex items-center justify-center">
-                  {notifications.length}
-                </span>
-              )}
-            </div>
-            <div className="flex items-center space-x-2">
-              <div className="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center">
-                <span className="text-white text-sm font-semibold">
-                  {user?.name?.charAt(0).toUpperCase()}
-                </span>
+            <div className="flex items-center space-x-4">
+              <div className="text-right">
+                <p className="text-xs text-gray-500">Stats Updated</p>
+                <p className="text-sm font-medium text-gray-900 dark:text-white">
+                  {lastStatsUpdate.toLocaleTimeString()}
+                </p>
               </div>
-              <div className="flex flex-col">
-                <span className="text-sm font-medium text-gray-900 dark:text-white">{user?.name}</span>
-                <span className="text-xs text-gray-500 capitalize">{user?.role}</span>
+              <div className="text-right">
+                <p className="text-xs text-gray-500">System Time</p>
+                <p className="text-sm font-medium text-gray-900 dark:text-white">
+                  {new Date().toLocaleTimeString()}
+                </p>
               </div>
             </div>
           </div>
         </div>
-      </div>
 
-      <div className="p-6 max-w-7xl mx-auto">
+        {/* Stats Header with Refresh Button */}
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center space-x-2">
+            <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Ticket Statistics</h2>
+            <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+          </div>
+          <button
+            onClick={() => {
+              if (socket && socket.connected) {
+                socket.emit('request:stats_refresh');
+                toast.success('Refreshing stats...');
+              }
+            }}
+            className="flex items-center space-x-2 px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm"
+          >
+            <RefreshCw className="w-4 h-4" />
+            <span>Refresh</span>
+          </button>
+        </div>
+
         {/* Enhanced Stats Cards with Real-time Indicators */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
           {statsCards.map((card, index) => {
             const Icon = card.icon;
             return (
-              <div key={index} className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-6 relative">
+              <div key={index} className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-6 relative group hover:shadow-md transition-all duration-200">
+                {/* Real-time indicator */}
                 {card.realTime && (
-                  <div className="absolute top-2 right-2">
-                    <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+                  <div className="absolute top-3 right-3">
+                    <div className="w-3 h-3 bg-green-500 rounded-full animate-pulse"></div>
+                    <div className="absolute inset-0 w-3 h-3 bg-green-500 rounded-full animate-ping opacity-75"></div>
                   </div>
                 )}
+                
+                {/* Live indicator text */}
+                {card.realTime && (
+                  <div className="absolute top-3 left-3">
+                    <span className="text-xs bg-green-100 text-green-800 px-2 py-1 rounded-full font-medium">
+                      LIVE
+                    </span>
+                  </div>
+                )}
+                
                 <div className="flex items-center justify-between">
-                  <div>
+                  <div className="flex-1">
                     <p className="text-sm font-medium text-gray-600 dark:text-gray-400">{card.title}</p>
-                    <p className="text-2xl font-bold text-gray-900 dark:text-white">{card.value}</p>
-                    <div className="flex items-center space-x-1 mt-1">
+                    <p className="text-3xl font-bold text-gray-900 dark:text-white mt-1">{card.value}</p>
+                    <div className="flex items-center space-x-1 mt-2">
                       {getTrendIcon(card.trend)}
                       <span className="text-xs text-gray-500 dark:text-gray-400">{card.change}</span>
                     </div>
+                    {card.description && (
+                      <p className="text-xs text-gray-400 mt-1">{card.description}</p>
+                    )}
                   </div>
-                  <div className={`p-3 rounded-lg ${card.color}`}>
-                    <Icon className="w-6 h-6 text-white" />
+                  <div className={`p-4 rounded-lg ${card.color} ml-4`}>
+                    <Icon className="w-8 h-8 text-white" />
                   </div>
                 </div>
+                
+                {/* Hover effect */}
+                <div className="absolute inset-0 bg-gradient-to-r from-transparent to-white/5 opacity-0 group-hover:opacity-100 transition-opacity duration-200 rounded-lg"></div>
               </div>
             );
           })}
@@ -784,9 +938,39 @@ const Dashboard = () => {
                     <div className="flex items-center space-x-2">
                       {getStatusIcon(status.status)}
                       <span className="text-xs text-green-600 capitalize">{status.status}</span>
+                      <span className="text-xs text-gray-500">
+                        {service === 'database' && status.latency}
+                        {service === 'ai' && status.responseTime}
+                        {service === 'storage' && status.usage}
+                        {service === 'network' && status.bandwidth}
+                        {service === 'realtime' && `${status.connections} conn`}
+                      </span>
                     </div>
                   </div>
                 ))}
+              </div>
+              
+              {/* System Health Indicators */}
+              <div className="mt-4 pt-4 border-t border-gray-200">
+                <h4 className="text-sm font-medium text-gray-900 mb-2">Health Indicators</h4>
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="flex items-center space-x-2">
+                    <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+                    <span className="text-xs text-gray-600">CPU: 23%</span>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+                    <span className="text-xs text-gray-600">Memory: 45%</span>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <div className="w-2 h-2 bg-yellow-500 rounded-full"></div>
+                    <span className="text-xs text-gray-600">Disk: 78%</span>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+                    <span className="text-xs text-gray-600">Network: 12%</span>
+                  </div>
+                </div>
               </div>
             </div>
 

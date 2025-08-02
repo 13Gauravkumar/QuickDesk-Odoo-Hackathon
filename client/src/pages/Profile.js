@@ -123,10 +123,11 @@ const Profile = () => {
   // Export data function
   const handleExportData = async (format) => {
     try {
-      toast.loading('Preparing your data for export...');
+      const loadingToast = toast.loading('Preparing your data for export...');
       
       const token = localStorage.getItem('token');
       if (!token) {
+        toast.dismiss(loadingToast);
         toast.error('Please log in to export your data');
         return;
       }
@@ -136,6 +137,8 @@ const Profile = () => {
           'Authorization': `Bearer ${token}`
         }
       });
+
+      toast.dismiss(loadingToast);
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));

@@ -157,6 +157,64 @@ io.on('connection', (socket) => {
   });
 
   // Handle real-time updates for all users
+  
+  // Handle stats refresh request
+  socket.on('request:stats_refresh', async () => {
+    try {
+      // Get current user from socket
+      const userId = socket.userId;
+      if (!userId) return;
+      
+      // Get user from database
+      const User = require('./models/User');
+      const user = await User.findById(userId);
+      if (!user) return;
+      
+      // Get updated stats
+      const Ticket = require('./models/Ticket');
+      let matchQuery = {};
+      
+      // If user is not admin, only show their own tickets
+      if (user.role !== 'admin') {
+        matchQuery.createdBy = userId;
+      }
+
+      const stats = await Ticket.aggregate([
+        { $match: matchQuery },
+        {
+          $group: {
+            _id: null,
+            totalTickets: { $sum: 1 },
+            openTickets: {
+              $sum: { $cond: [{ $eq: ['$status', 'open'] }, 1, 0] }
+            },
+            inProgressTickets: {
+              $sum: { $cond: [{ $eq: ['$status', 'in-progress'] }, 1, 0] }
+            },
+            resolvedTickets: {
+              $sum: { $cond: [{ $eq: ['$status', 'resolved'] }, 1, 0] }
+            },
+            closedTickets: {
+              $sum: { $cond: [{ $eq: ['$status', 'closed'] }, 1, 0] }
+            }
+          }
+        }
+      ]);
+
+      const updatedStats = stats[0] || {
+        totalTickets: 0,
+        openTickets: 0,
+        inProgressTickets: 0,
+        resolvedTickets: 0,
+        closedTickets: 0
+      };
+
+      // Send updated stats back to the client
+      socket.emit('stats:refresh:response', updatedStats);
+    } catch (error) {
+      console.error('Error refreshing stats:', error);
+    }
+  });
   socket.on('broadcast:update', (data) => {
     io.emit('realtime:update', data);
   });

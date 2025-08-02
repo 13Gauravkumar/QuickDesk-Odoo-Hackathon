@@ -18,6 +18,57 @@ const {
 
 const router = express.Router();
 
+// Helper function to get updated stats
+const getUpdatedStats = async (user) => {
+  try {
+    let matchQuery = {};
+    
+    // If user is not admin, only show their own tickets
+    if (user && user.role !== 'admin') {
+      matchQuery.createdBy = user.id;
+    }
+
+    const stats = await Ticket.aggregate([
+      { $match: matchQuery },
+      {
+        $group: {
+          _id: null,
+          totalTickets: { $sum: 1 },
+          openTickets: {
+            $sum: { $cond: [{ $eq: ['$status', 'open'] }, 1, 0] }
+          },
+          inProgressTickets: {
+            $sum: { $cond: [{ $eq: ['$status', 'in-progress'] }, 1, 0] }
+          },
+          resolvedTickets: {
+            $sum: { $cond: [{ $eq: ['$status', 'resolved'] }, 1, 0] }
+          },
+          closedTickets: {
+            $sum: { $cond: [{ $eq: ['$status', 'closed'] }, 1, 0] }
+          }
+        }
+      }
+    ]);
+
+    return stats[0] || {
+      totalTickets: 0,
+      openTickets: 0,
+      inProgressTickets: 0,
+      resolvedTickets: 0,
+      closedTickets: 0
+    };
+  } catch (error) {
+    console.error('Error getting updated stats:', error);
+    return {
+      totalTickets: 0,
+      openTickets: 0,
+      inProgressTickets: 0,
+      resolvedTickets: 0,
+      closedTickets: 0
+    };
+  }
+};
+
 // Configure multer for file uploads
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
@@ -570,6 +621,16 @@ router.post('/', authenticateToken, upload.array('attachments', 5), async (req, 
     // Emit dashboard stats update
     emitToAll('dashboard:stats:updated', { type: 'ticket_created' });
     
+    // Emit updated stats to all clients
+    const updatedStats = await getUpdatedStats(req.user);
+    emitToAll('stats:refresh', updatedStats);
+    
+    // Also emit to specific user if they're not admin
+    if (req.user.role !== 'admin') {
+      const userStats = await getUpdatedStats(req.user);
+      emitToUser(req.user.id, 'stats:refresh', userStats);
+    }
+    
     // Emit notification to admins
     const admins = await User.find({ role: 'admin', isActive: true });
     admins.forEach(admin => {
@@ -638,6 +699,87 @@ router.get('/stats', authenticateToken, async (req, res) => {
   }
 });
 
+// Export tickets
+router.get('/export', authenticateToken, async (req, res) => {
+  try {
+    const { format = 'csv', search, status, category, priority, sort = '-createdAt' } = req.query;
+    
+    // Build query based on filters
+    const query = {};
+    
+    if (search) {
+      query.$or = [
+        { subject: { $regex: search, $options: 'i' } },
+        { description: { $regex: search, $options: 'i' } }
+      ];
+    }
+    
+    if (status) query.status = status;
+    if (category) query.category = category;
+    if (priority) query.priority = priority;
+    
+    // Get tickets with filters
+    const tickets = await Ticket.find(query)
+      .populate('category', 'name color')
+      .populate('assignedTo', 'name email')
+      .populate('createdBy', 'name email')
+      .sort(sort);
+    
+    if (format === 'csv') {
+      // Create CSV content
+      const csvRows = [
+        ['ID', 'Title', 'Description', 'Status', 'Priority', 'Category', 'Created By', 'Assigned To', 'Created At', 'Updated At', 'Resolved At']
+      ];
+      
+      tickets.forEach(ticket => {
+        csvRows.push([
+          ticket._id,
+          ticket.subject,
+          ticket.description,
+          ticket.status,
+          ticket.priority,
+          ticket.category?.name || 'N/A',
+          ticket.createdBy?.name || 'N/A',
+          ticket.assignedTo?.name || 'N/A',
+          ticket.createdAt.toISOString(),
+          ticket.updatedAt.toISOString(),
+          ticket.resolvedAt?.toISOString() || 'N/A'
+        ]);
+      });
+      
+      const csvContent = csvRows.map(row => 
+        row.map(cell => `"${cell}"`).join(',')
+      ).join('\n');
+      
+      res.setHeader('Content-Type', 'text/csv');
+      res.setHeader('Content-Disposition', `attachment; filename=tickets-export-${new Date().toISOString().split('T')[0]}.csv`);
+      res.send(csvContent);
+    } else {
+      // Return JSON
+      res.json({
+        success: true,
+        data: tickets.map(ticket => ({
+          id: ticket._id,
+          title: ticket.subject,
+          description: ticket.description,
+          status: ticket.status,
+          priority: ticket.priority,
+          category: ticket.category?.name,
+          createdBy: ticket.createdBy?.name,
+          assignedTo: ticket.assignedTo?.name,
+          createdAt: ticket.createdAt,
+          updatedAt: ticket.updatedAt,
+          resolvedAt: ticket.resolvedAt
+        })),
+        total: tickets.length
+      });
+    }
+  } catch (error) {
+    console.error('Export error:', error);
+    res.status(500).json({ message: 'Error exporting tickets' });
+  }
+});
+
 // @route   GET /api/tickets/:id
 // @desc    Get single ticket
 // @access  Private
@@ -674,7 +816,7 @@ router.get('/:id', authenticateToken, async (req, res) => {
 // Update ticket
 router.patch('/:id', authenticateToken, async (req, res) => {
   try {
-    const { status, priority, subject, description } = req.body;
+    const { status, priority, subject, description, resolution } = req.body;
     const ticketId = req.params.id;
     
     const ticket = await Ticket.findById(ticketId);
@@ -698,6 +840,22 @@ router.patch('/:id', authenticateToken, async (req, res) => {
     if (priority) updateData.priority = priority;
     if (subject) updateData.subject = subject;
     if (description) updateData.description = description;
+    
+    // Handle resolution
+    if (resolution) {
+      updateData.resolution = resolution;
+    }
+    
+    // Set resolvedAt when status changes to resolved
+    if (status === 'resolved' && oldStatus !== 'resolved') {
+      updateData.resolvedAt = new Date();
+    }
+    
+    // Clear resolvedAt when status changes from resolved to something else
+    if (oldStatus === 'resolved' && status !== 'resolved') {
+      updateData.resolvedAt = null;
+      updateData.resolution = null;
+    }
     
     const updatedTicket = await Ticket.findByIdAndUpdate(
       ticketId,
@@ -728,6 +886,19 @@ router.patch('/:id', authenticateToken, async (req, res) => {
     
     // Emit dashboard stats update
     emitToAll('dashboard:stats:updated', { type: 'ticket_updated' });
+    
+    // Emit specific status update based on the change
+    if (req.body.status) {
+      const statusType = req.body.status === 'resolved' ? 'ticket_resolved' :
+                        req.body.status === 'in-progress' ? 'ticket_in_progress' :
+                        req.body.status === 'open' ? 'ticket_reopened' : 'ticket_updated';
+      
+      emitToAll('dashboard:stats:updated', { type: statusType });
+      
+      // Emit updated stats to all clients
+      const updatedStats = await getUpdatedStats(req.user);
+      emitToAll('stats:refresh', updatedStats);
+    }
     
     // Emit notification to ticket creator
     if (updatedTicket.createdBy && updatedTicket.createdBy._id.toString() !== req.user.id) {
@@ -966,87 +1137,6 @@ router.post('/:id/vote', authenticateToken, async (req, res) => {
   } catch (error) {
     console.error('Error voting on ticket:', error);
     res.status(500).json({ message: 'Server error' });
-  }
-});
-
-// Export tickets
-router.get('/export', authenticateToken, async (req, res) => {
-  try {
-    const { format = 'csv', search, status, category, priority, sort = '-createdAt' } = req.query;
-    
-    // Build query based on filters
-    const query = {};
-    
-    if (search) {
-      query.$or = [
-        { title: { $regex: search, $options: 'i' } },
-        { description: { $regex: search, $options: 'i' } }
-      ];
-    }
-    
-    if (status) query.status = status;
-    if (category) query.category = category;
-    if (priority) query.priority = priority;
-    
-    // Get tickets with filters
-    const tickets = await Ticket.find(query)
-      .populate('category', 'name color')
-      .populate('assignedTo', 'name email')
-      .populate('createdBy', 'name email')
-      .sort(sort);
-    
-    if (format === 'csv') {
-      // Create CSV content
-      const csvRows = [
-        ['ID', 'Title', 'Description', 'Status', 'Priority', 'Category', 'Created By', 'Assigned To', 'Created At', 'Updated At', 'Resolved At']
-      ];
-      
-      tickets.forEach(ticket => {
-        csvRows.push([
-          ticket._id,
-          ticket.subject,
-          ticket.description,
-          ticket.status,
-          ticket.priority,
-          ticket.category?.name || 'N/A',
-          ticket.createdBy?.name || 'N/A',
-          ticket.assignedTo?.name || 'N/A',
-          ticket.createdAt.toISOString(),
-          ticket.updatedAt.toISOString(),
-          ticket.resolvedAt?.toISOString() || 'N/A'
-        ]);
-      });
-      
-      const csvContent = csvRows.map(row => 
-        row.map(cell => `"${cell}"`).join(',')
-      ).join('\n');
-      
-      res.setHeader('Content-Type', 'text/csv');
-      res.setHeader('Content-Disposition', `attachment; filename=tickets-export-${new Date().toISOString().split('T')[0]}.csv`);
-      res.send(csvContent);
-    } else {
-      // Return JSON
-      res.json({
-        success: true,
-        data: tickets.map(ticket => ({
-          id: ticket._id,
-          title: ticket.subject,
-          description: ticket.description,
-          status: ticket.status,
-          priority: ticket.priority,
-          category: ticket.category?.name,
-          createdBy: ticket.createdBy?.name,
-          assignedTo: ticket.assignedTo?.name,
-          createdAt: ticket.createdAt,
-          updatedAt: ticket.updatedAt,
-          resolvedAt: ticket.resolvedAt
-        })),
-        total: tickets.length
-      });
-    }
-  } catch (error) {
-    console.error('Export error:', error);
-    res.status(500).json({ message: 'Error exporting tickets' });
   }
 });
 

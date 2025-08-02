@@ -135,7 +135,7 @@ const Analytics = () => {
         return;
       }
 
-      toast.loading('Preparing analytics report for export...');
+      const loadingToast = toast.loading('Preparing analytics report for export...');
       
       const params = new URLSearchParams();
       if (showCustomRange) {
@@ -152,6 +152,8 @@ const Analytics = () => {
         }
       });
       
+      toast.dismiss(loadingToast);
+      
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
         if (response.status === 401) {
@@ -167,16 +169,31 @@ const Analytics = () => {
         }
       }
 
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `analytics-report-${format}-${format(new Date(), 'yyyy-MM-dd')}.${format}`;
-      document.body.appendChild(a);
-      a.click();
-      window.URL.revokeObjectURL(url);
-      document.body.removeChild(a);
-      toast.success(`Analytics report exported successfully as ${format.toUpperCase()}`);
+      if (format === 'csv') {
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `analytics-report-${new Date().toISOString().split('T')[0]}.csv`;
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+        toast.success('Analytics report exported successfully as CSV');
+      } else {
+        // Handle JSON download
+        const data = await response.json();
+        const blob = new Blob([JSON.stringify(data.data, null, 2)], { type: 'application/json' });
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `analytics-report-${new Date().toISOString().split('T')[0]}.json`;
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+        toast.success('Analytics report exported successfully as JSON');
+      }
     } catch (error) {
       console.error('Export failed:', error);
       toast.error(error.message || 'Failed to export analytics data');
@@ -213,11 +230,11 @@ const Analytics = () => {
               <span>Export CSV</span>
             </button>
             <button
-              onClick={() => exportReport('pdf')}
-              className="flex items-center space-x-2 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+              onClick={() => exportReport('json')}
+              className="flex items-center space-x-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
             >
               <Download className="w-4 h-4" />
-              <span>Export PDF</span>
+              <span>Export JSON</span>
             </button>
           </div>
         </div>

@@ -163,6 +163,10 @@ const ticketSchema = new mongoose.Schema({
   firstResponseAt: Date,
   resolvedAt: Date,
   closedAt: Date,
+  resolution: {
+    type: String,
+    trim: true
+  },
   totalTimeSpent: {
     type: Number, // in minutes
     default: 0

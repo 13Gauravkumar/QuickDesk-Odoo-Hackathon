@@ -73,7 +73,7 @@ const AIAgentWidget = ({ ticket, onUpdate }) => {
         toast.success('Ticket auto-resolved by AI agent!');
         onUpdate && onUpdate();
       } else {
-        toast.info('Ticket requires human agent assistance');
+        toast('Ticket requires human agent assistance');
       }
       
       setAnalysis(data.response.analysis);
