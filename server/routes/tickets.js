@@ -71,7 +71,7 @@ router.get('/', authenticateToken, async (req, res) => {
     
     if (search) {
       query.$or = [
-        { title: { $regex: search, $options: 'i' } },
+        { subject: { $regex: search, $options: 'i' } },
         { description: { $regex: search, $options: 'i' } }
       ];
     }
@@ -986,6 +986,87 @@ router.post('/:id/vote', authenticateToken, async (req, res) => {
   } catch (error) {
     console.error('Error voting on ticket:', error);
     res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// Export tickets
+router.get('/export', authenticateToken, async (req, res) => {
+  try {
+    const { format = 'csv', search, status, category, priority, sort = '-createdAt' } = req.query;
+    
+    // Build query based on filters
+    const query = {};
+    
+    if (search) {
+      query.$or = [
+        { title: { $regex: search, $options: 'i' } },
+        { description: { $regex: search, $options: 'i' } }
+      ];
+    }
+    
+    if (status) query.status = status;
+    if (category) query.category = category;
+    if (priority) query.priority = priority;
+    
+    // Get tickets with filters
+    const tickets = await Ticket.find(query)
+      .populate('category', 'name color')
+      .populate('assignedTo', 'name email')
+      .populate('createdBy', 'name email')
+      .sort(sort);
+    
+    if (format === 'csv') {
+      // Create CSV content
+      const csvRows = [
+        ['ID', 'Title', 'Description', 'Status', 'Priority', 'Category', 'Created By', 'Assigned To', 'Created At', 'Updated At', 'Resolved At']
+      ];
+      
+      tickets.forEach(ticket => {
+        csvRows.push([
+          ticket._id,
+          ticket.subject,
+          ticket.description,
+          ticket.status,
+          ticket.priority,
+          ticket.category?.name || 'N/A',
+          ticket.createdBy?.name || 'N/A',
+          ticket.assignedTo?.name || 'N/A',
+          ticket.createdAt.toISOString(),
+          ticket.updatedAt.toISOString(),
+          ticket.resolvedAt?.toISOString() || 'N/A'
+        ]);
+      });
+      
+      const csvContent = csvRows.map(row => 
+        row.map(cell => `"${cell}"`).join(',')
+      ).join('\n');
+      
+      res.setHeader('Content-Type', 'text/csv');
+      res.setHeader('Content-Disposition', `attachment; filename=tickets-export-${new Date().toISOString().split('T')[0]}.csv`);
+      res.send(csvContent);
+    } else {
+      // Return JSON
+      res.json({
+        success: true,
+        data: tickets.map(ticket => ({
+          id: ticket._id,
+          title: ticket.subject,
+          description: ticket.description,
+          status: ticket.status,
+          priority: ticket.priority,
+          category: ticket.category?.name,
+          createdBy: ticket.createdBy?.name,
+          assignedTo: ticket.assignedTo?.name,
+          createdAt: ticket.createdAt,
+          updatedAt: ticket.updatedAt,
+          resolvedAt: ticket.resolvedAt
+        })),
+        total: tickets.length
+      });
+    }
+  } catch (error) {
+    console.error('Export error:', error);
+    res.status(500).json({ message: 'Error exporting tickets' });
   }
 });
 

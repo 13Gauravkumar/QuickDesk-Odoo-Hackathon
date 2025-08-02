@@ -120,6 +120,71 @@ const Profile = () => {
     changePasswordMutation.mutate(data);
   };
 
+  // Export data function
+  const handleExportData = async (format) => {
+    try {
+      toast.loading('Preparing your data for export...');
+      
+      const token = localStorage.getItem('token');
+      if (!token) {
+        toast.error('Please log in to export your data');
+        return;
+      }
+      
+      const response = await fetch(`/api/users/export?format=${format}`, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        if (response.status === 401) {
+          toast.error('Session expired. Please log in again.');
+          // Redirect to login or refresh token
+          localStorage.removeItem('token');
+          window.location.href = '/login';
+          return;
+        } else if (response.status === 403) {
+          toast.error('You do not have permission to export data');
+          return;
+        } else {
+          throw new Error(errorData.message || 'Failed to export data');
+        }
+      }
+
+      if (format === 'csv') {
+        // Handle CSV download
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `user-data-${user?.name?.replace(/\s+/g, '-')}-${new Date().toISOString().split('T')[0]}.csv`;
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+        toast.success('Data exported successfully as CSV');
+      } else {
+        // Handle JSON download
+        const data = await response.json();
+        const blob = new Blob([JSON.stringify(data.data, null, 2)], { type: 'application/json' });
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `user-data-${user?.name?.replace(/\s+/g, '-')}-${new Date().toISOString().split('T')[0]}.json`;
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+        toast.success('Data exported successfully as JSON');
+      }
+    } catch (error) {
+      console.error('Export error:', error);
+      toast.error(error.message || 'Failed to export data');
+    }
+  };
+
   const tabs = [
     { id: 'profile', label: 'Profile', icon: User },
     { id: 'security', label: 'Security', icon: Shield },
@@ -464,10 +529,27 @@ const Profile = () => {
                   Export your ticket data and account information for backup purposes.
                 </p>
 
-                <button className="btn-secondary flex items-center space-x-2">
-                  <Download className="w-4 h-4" />
-                  <span>Export My Data</span>
-                </button>
+                <div className="space-y-4">
+                  <div className="flex items-center space-x-4">
+                    <button 
+                      onClick={() => handleExportData('json')}
+                      className="btn-secondary flex items-center space-x-2"
+                    >
+                      <Download className="w-4 h-4" />
+                      <span>Export as JSON</span>
+                    </button>
+                    <button 
+                      onClick={() => handleExportData('csv')}
+                      className="btn-secondary flex items-center space-x-2"
+                    >
+                      <Download className="w-4 h-4" />
+                      <span>Export as CSV</span>
+                    </button>
+                  </div>
+                  <p className="text-sm text-gray-500">
+                    Export your personal data including profile information and ticket history.
+                  </p>
+                </div>
               </div>
             </div>
           )}

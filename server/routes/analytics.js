@@ -298,7 +298,7 @@ router.get('/export', authenticateToken, authorize(['admin', 'agent']), async (r
         ['Ticket ID', 'Title', 'Status', 'Priority', 'Category', 'Created By', 'Assigned To', 'Created At', 'Resolved At'],
         ...tickets.map(ticket => [
           ticket._id,
-          ticket.title,
+          ticket.subject,
           ticket.status,
           ticket.priority,
           ticket.category?.name || 'N/A',
@@ -321,7 +321,7 @@ router.get('/export', authenticateToken, authorize(['admin', 'agent']), async (r
         message: 'PDF export functionality would be implemented here',
         data: tickets.map(ticket => ({
           id: ticket._id,
-          title: ticket.title,
+          title: ticket.subject,
           status: ticket.status,
           priority: ticket.priority,
           category: ticket.category?.name,
@@ -365,7 +365,7 @@ router.get('/realtime', authenticateToken, authorize(['admin', 'agent']), async 
     res.json({
       recentTickets: recentTickets.map(ticket => ({
         id: ticket._id,
-        title: ticket.title,
+        title: ticket.subject,
         status: ticket.status,
         createdBy: ticket.createdBy?.name,
         createdAt: ticket.createdAt

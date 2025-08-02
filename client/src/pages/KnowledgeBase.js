@@ -45,6 +45,9 @@ const KnowledgeBase = () => {
     difficulty: 'all',
     tags: []
   });
+  const [aiSearchResults, setAiSearchResults] = useState(null);
+  const [aiInsights, setAiInsights] = useState('');
+  const [relatedTopics, setRelatedTopics] = useState([]);
 
   // Fetch knowledge base articles
   const { data: articles, isLoading } = useQuery('knowledge-base', async () => {
@@ -186,6 +189,10 @@ const KnowledgeBase = () => {
     if (!search.trim()) return;
     
     setAiSearch(true);
+    setAiSearchResults(null);
+    setAiInsights('');
+    setRelatedTopics([]);
+    
     try {
       const response = await fetch('/api/knowledge-base/ai-search', {
         method: 'POST',
@@ -197,7 +204,16 @@ const KnowledgeBase = () => {
       });
       
       const result = await response.json();
-      // Handle AI search results
+      
+      if (result.enhancedByAI) {
+        setAiSearchResults(result.results);
+        setAiInsights(result.aiInsights || '');
+        setRelatedTopics(result.relatedTopics || []);
+      } else {
+        // Fallback to basic search results
+        setAiSearchResults(result.results);
+      }
+      
       console.log('AI search results:', result);
     } catch (error) {
       console.error('AI search error:', error);
@@ -253,7 +269,15 @@ const KnowledgeBase = () => {
                 type="text"
                 placeholder="Ask anything... AI will help you find the best answers"
                 value={search}
-                onChange={(e) => setSearch(e.target.value)}
+                onChange={(e) => {
+                  setSearch(e.target.value);
+                  // Clear AI results when user starts typing
+                  if (aiSearchResults) {
+                    setAiSearchResults(null);
+                    setAiInsights('');
+                    setRelatedTopics([]);
+                  }
+                }}
                 className="w-full pl-10 pr-12 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               />
               <button
@@ -365,59 +389,164 @@ const KnowledgeBase = () => {
         </div>
       </div>
 
-      {/* Articles Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {sortedArticles.map(article => (
-          <div
-            key={article._id}
-            className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 hover:shadow-md transition-shadow cursor-pointer"
-            onClick={() => handleArticleClick(article)}
-          >
-            <div className="flex items-start justify-between mb-4">
-              <span className={`px-2 py-1 rounded-full text-xs font-medium ${getCategoryColor(article.category)}`}>
-                {categories.find(c => c.id === article.category)?.name || article.category}
-              </span>
-              <div className="flex items-center space-x-1 text-gray-500">
-                <Eye className="w-3 h-3" />
-                <span className="text-xs">{article.views || 0}</span>
-              </div>
+      {/* AI Search Results */}
+      {aiSearchResults && (
+        <div className="mb-8">
+          <div className="bg-gradient-to-r from-blue-50 to-purple-50 rounded-lg p-6 border border-blue-200">
+            <div className="flex items-center space-x-2 mb-4">
+              <Brain className="w-5 h-5 text-blue-600" />
+              <h3 className="text-lg font-semibold text-gray-900">AI-Enhanced Search Results</h3>
+              <span className="px-2 py-1 bg-blue-100 text-blue-800 text-xs rounded-full">AI Powered</span>
             </div>
             
-            <h3 className="text-lg font-semibold text-gray-900 mb-2 line-clamp-2">
-              {article.title}
-            </h3>
-            
-            <p className="text-gray-600 text-sm mb-4 line-clamp-3">
-              {article.content}
-            </p>
-            
-            <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-2">
-                <Star className="w-3 h-3 text-yellow-500" />
-                <span className="text-xs text-gray-600">{article.rating || 0}</span>
+            {aiInsights && (
+              <div className="mb-4 p-4 bg-white rounded-lg border border-blue-200">
+                <h4 className="font-medium text-gray-900 mb-2">AI Insights</h4>
+                <p className="text-gray-700 text-sm">{aiInsights}</p>
               </div>
-              <span className="text-xs text-gray-500">
-                {format(new Date(article.createdAt), 'MMM d, yyyy')}
-              </span>
-            </div>
+            )}
             
-            {article.tags && article.tags.length > 0 && (
-              <div className="mt-3 flex flex-wrap gap-1">
-                {article.tags.slice(0, 3).map(tag => (
-                  <span key={tag} className="px-2 py-1 bg-gray-100 text-gray-600 text-xs rounded">
-                    {tag}
-                  </span>
-                ))}
-                {article.tags.length > 3 && (
-                  <span className="px-2 py-1 bg-gray-100 text-gray-600 text-xs rounded">
-                    +{article.tags.length - 3}
-                  </span>
-                )}
+            {relatedTopics.length > 0 && (
+              <div className="mb-4">
+                <h4 className="font-medium text-gray-900 mb-2">Related Topics</h4>
+                <div className="flex flex-wrap gap-2">
+                  {relatedTopics.map((topic, index) => (
+                    <span key={index} className="px-3 py-1 bg-blue-100 text-blue-800 text-sm rounded-full">
+                      {topic}
+                    </span>
+                  ))}
+                </div>
               </div>
             )}
           </div>
-        ))}
-      </div>
+          
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {aiSearchResults.map(article => (
+              <div
+                key={article._id}
+                className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 hover:shadow-md transition-shadow cursor-pointer relative"
+                onClick={() => handleArticleClick(article)}
+              >
+                {article.enhancedByAI && (
+                  <div className="absolute top-2 right-2">
+                    <Brain className="w-4 h-4 text-blue-600" />
+                  </div>
+                )}
+                
+                <div className="flex items-start justify-between mb-4">
+                  <span className={`px-2 py-1 rounded-full text-xs font-medium ${getCategoryColor(article.category)}`}>
+                    {categories.find(c => c.id === article.category)?.name || article.category}
+                  </span>
+                  <div className="flex items-center space-x-1 text-gray-500">
+                    <Eye className="w-3 h-3" />
+                    <span className="text-xs">{article.views || 0}</span>
+                  </div>
+                </div>
+                
+                <h3 className="text-lg font-semibold text-gray-900 mb-2 line-clamp-2">
+                  {article.title}
+                </h3>
+                
+                <p className="text-gray-600 text-sm mb-4 line-clamp-3">
+                  {article.content}
+                </p>
+                
+                {article.aiExplanation && (
+                  <div className="mb-3 p-2 bg-blue-50 rounded text-xs text-blue-800">
+                    <strong>AI Analysis:</strong> {article.aiExplanation}
+                  </div>
+                )}
+                
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-2">
+                    <Star className="w-3 h-3 text-yellow-500" />
+                    <span className="text-xs text-gray-600">{article.rating || 0}</span>
+                    {article.aiRelevanceScore && (
+                      <span className="text-xs text-blue-600 font-medium">
+                        AI Score: {article.aiRelevanceScore.toFixed(1)}
+                      </span>
+                    )}
+                  </div>
+                  <span className="text-xs text-gray-500">
+                    {format(new Date(article.createdAt), 'MMM d, yyyy')}
+                  </span>
+                </div>
+                
+                {article.tags && article.tags.length > 0 && (
+                  <div className="mt-3 flex flex-wrap gap-1">
+                    {article.tags.slice(0, 3).map(tag => (
+                      <span key={tag} className="px-2 py-1 bg-gray-100 text-gray-600 text-xs rounded">
+                        {tag}
+                      </span>
+                    ))}
+                    {article.tags.length > 3 && (
+                      <span className="px-2 py-1 bg-gray-100 text-gray-600 text-xs rounded">
+                        +{article.tags.length - 3}
+                      </span>
+                    )}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Regular Articles Grid */}
+      {!aiSearchResults && (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {sortedArticles.map(article => (
+            <div
+              key={article._id}
+              className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 hover:shadow-md transition-shadow cursor-pointer"
+              onClick={() => handleArticleClick(article)}
+            >
+              <div className="flex items-start justify-between mb-4">
+                <span className={`px-2 py-1 rounded-full text-xs font-medium ${getCategoryColor(article.category)}`}>
+                  {categories.find(c => c.id === article.category)?.name || article.category}
+                </span>
+                <div className="flex items-center space-x-1 text-gray-500">
+                  <Eye className="w-3 h-3" />
+                  <span className="text-xs">{article.views || 0}</span>
+                </div>
+              </div>
+              
+              <h3 className="text-lg font-semibold text-gray-900 mb-2 line-clamp-2">
+                {article.title}
+              </h3>
+              
+              <p className="text-gray-600 text-sm mb-4 line-clamp-3">
+                {article.content}
+              </p>
+              
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-2">
+                  <Star className="w-3 h-3 text-yellow-500" />
+                  <span className="text-xs text-gray-600">{article.rating || 0}</span>
+                </div>
+                <span className="text-xs text-gray-500">
+                  {format(new Date(article.createdAt), 'MMM d, yyyy')}
+                </span>
+              </div>
+              
+              {article.tags && article.tags.length > 0 && (
+                <div className="mt-3 flex flex-wrap gap-1">
+                  {article.tags.slice(0, 3).map(tag => (
+                    <span key={tag} className="px-2 py-1 bg-gray-100 text-gray-600 text-xs rounded">
+                      {tag}
+                    </span>
+                  ))}
+                  {article.tags.length > 3 && (
+                    <span className="px-2 py-1 bg-gray-100 text-gray-600 text-xs rounded">
+                      +{article.tags.length - 3}
+                    </span>
+                  )}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* Article Modal */}
       {showArticleModal && selectedArticle && (

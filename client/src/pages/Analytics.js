@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useQuery, useQueryClient } from 'react-query';
 import { useAuth } from '../contexts/AuthContext';
 import { useSocket } from '../contexts/SocketContext';
+import toast from 'react-hot-toast';
 import { 
   BarChart3, 
   TrendingUp, 
@@ -128,6 +129,14 @@ const Analytics = () => {
 
   const exportReport = async (format = 'csv') => {
     try {
+      const token = localStorage.getItem('token');
+      if (!token) {
+        toast.error('Please log in to export analytics data');
+        return;
+      }
+
+      toast.loading('Preparing analytics report for export...');
+      
       const params = new URLSearchParams();
       if (showCustomRange) {
         params.append('startDate', customDateRange.startDate);
@@ -139,23 +148,38 @@ const Analytics = () => {
       
       const response = await fetch(`/api/analytics/export?${params}`, {
         headers: {
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
+          'Authorization': `Bearer ${token}`
         }
       });
       
-      if (response.ok) {
-        const blob = await response.blob();
-        const url = window.URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `analytics-report-${format}-${format(new Date(), 'yyyy-MM-dd')}.${format}`;
-        document.body.appendChild(a);
-        a.click();
-        window.URL.revokeObjectURL(url);
-        document.body.removeChild(a);
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        if (response.status === 401) {
+          toast.error('Session expired. Please log in again.');
+          localStorage.removeItem('token');
+          window.location.href = '/login';
+          return;
+        } else if (response.status === 403) {
+          toast.error('You do not have permission to export analytics data');
+          return;
+        } else {
+          throw new Error(errorData.message || 'Failed to export analytics data');
+        }
       }
+
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `analytics-report-${format}-${format(new Date(), 'yyyy-MM-dd')}.${format}`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+      toast.success(`Analytics report exported successfully as ${format.toUpperCase()}`);
     } catch (error) {
       console.error('Export failed:', error);
+      toast.error(error.message || 'Failed to export analytics data');
     }
   };
 

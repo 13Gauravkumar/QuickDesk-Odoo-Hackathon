@@ -231,4 +231,103 @@ router.post('/bulk-update', authorize('admin'), [
   }
 });
 
+// @route   GET /api/users/export
+// @desc    Export user data
+// @access  Private (User can export their own data)
+router.get('/export', authenticateToken, async (req, res) => {
+  try {
+    const { format = 'json' } = req.query;
+    const userId = req.user.id;
+    
+    // Get user data
+    const user = await User.findById(userId).select('-password');
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+    
+    // Get user's tickets
+    const tickets = await Ticket.find({
+      $or: [
+        { createdBy: userId },
+        { assignedTo: userId }
+      ]
+    })
+    .populate('category', 'name color')
+    .populate('assignedTo', 'name email')
+    .populate('createdBy', 'name email')
+    .sort({ createdAt: -1 });
+    
+    // Prepare export data
+    const exportData = {
+      user: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        isActive: user.isActive,
+        createdAt: user.createdAt,
+        lastActiveAt: user.lastActiveAt
+      },
+      tickets: tickets.map(ticket => ({
+        id: ticket._id,
+        title: ticket.subject,
+        description: ticket.description,
+        status: ticket.status,
+        priority: ticket.priority,
+        category: ticket.category?.name || 'N/A',
+        createdBy: ticket.createdBy?.name || 'N/A',
+        assignedTo: ticket.assignedTo?.name || 'N/A',
+        createdAt: ticket.createdAt,
+        updatedAt: ticket.updatedAt,
+        resolvedAt: ticket.resolvedAt
+      })),
+      exportDate: new Date().toISOString(),
+      totalTickets: tickets.length
+    };
+    
+    if (format === 'csv') {
+      // Create CSV content
+      const csvRows = [
+        ['User Information'],
+        ['ID', 'Name', 'Email', 'Role', 'Created At'],
+        [user._id, user.name, user.email, user.role, user.createdAt.toISOString()],
+        [],
+        ['Tickets'],
+        ['ID', 'Title', 'Status', 'Priority', 'Category', 'Created By', 'Assigned To', 'Created At', 'Resolved At']
+      ];
+      
+      tickets.forEach(ticket => {
+        csvRows.push([
+          ticket._id,
+          ticket.subject,
+          ticket.status,
+          ticket.priority,
+          ticket.category?.name || 'N/A',
+          ticket.createdBy?.name || 'N/A',
+          ticket.assignedTo?.name || 'N/A',
+          ticket.createdAt.toISOString(),
+          ticket.resolvedAt?.toISOString() || 'N/A'
+        ]);
+      });
+      
+      const csvContent = csvRows.map(row => 
+        row.map(cell => `"${cell}"`).join(',')
+      ).join('\n');
+      
+      res.setHeader('Content-Type', 'text/csv');
+      res.setHeader('Content-Disposition', `attachment; filename=user-data-${user.name.replace(/\s+/g, '-')}-${new Date().toISOString().split('T')[0]}.csv`);
+      res.send(csvContent);
+    } else {
+      // Return JSON
+      res.json({
+        success: true,
+        data: exportData
+      });
+    }
+  } catch (error) {
+    console.error('Export error:', error);
+    res.status(500).json({ message: 'Error exporting data' });
+  }
+});
+
 module.exports = router; 

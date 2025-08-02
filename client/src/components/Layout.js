@@ -17,7 +17,6 @@ import {
   Moon
 } from 'lucide-react';
 import Notifications from './Notifications';
-import RealTimeStatus from './RealTimeStatus';
 
 const Layout = ({ children }) => {
   const { user, logout } = useAuth();
@@ -137,9 +136,6 @@ const Layout = ({ children }) => {
               >
                 {isDark ? <Sun className="w-5 h-5" /> : <Moon className="w-5 h-5" />}
               </button>
-
-              {/* Real-time Status */}
-              <RealTimeStatus />
 
               {/* Notifications */}
               <Notifications />

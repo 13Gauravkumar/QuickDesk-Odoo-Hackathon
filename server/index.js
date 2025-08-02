@@ -22,6 +22,7 @@ const automationRoutes = require('./routes/automation');
 const chatbotRoutes = require('./routes/chatbot');
 const reportRoutes = require('./routes/reports');
 const teamRoutes = require('./routes/teams');
+const aiAgentRoutes = require('./routes/ai-agent');
 const { authenticateToken } = require('./middleware/auth');
 const { sendEmail } = require('./utils/email');
 
@@ -72,6 +73,7 @@ mongoose.connect(process.env.MONGODB_URI, {
 
 // Socket.IO connection handling
 const connectedUsers = new Map();
+const teamRooms = new Map(); // Track users in team rooms
 
 io.on('connection', (socket) => {
   console.log('User connected:', socket.id);
@@ -82,9 +84,65 @@ io.on('connection', (socket) => {
     console.log(`User ${userId} joined`);
   });
 
+  socket.on('join:team', (data) => {
+    const { teamId } = data;
+    socket.join(`team:${teamId}`);
+    
+    // Track user in team room
+    if (!teamRooms.has(teamId)) {
+      teamRooms.set(teamId, new Set());
+    }
+    teamRooms.get(teamId).add(socket.userId);
+    
+    console.log(`User ${socket.userId} joined team ${teamId}`);
+  });
+
+  socket.on('leave:team', (data) => {
+    const { teamId } = data;
+    socket.leave(`team:${teamId}`);
+    
+    // Remove user from team room tracking
+    if (teamRooms.has(teamId)) {
+      teamRooms.get(teamId).delete(socket.userId);
+      if (teamRooms.get(teamId).size === 0) {
+        teamRooms.delete(teamId);
+      }
+    }
+    
+    console.log(`User ${socket.userId} left team ${teamId}`);
+  });
+
+  socket.on('team:typing', (data) => {
+    const { teamId, isTyping, userId, userName } = data;
+    
+    if (isTyping) {
+      socket.to(`team:${teamId}`).emit('team:typing:start', {
+        teamId,
+        userId,
+        userName
+      });
+    } else {
+      socket.to(`team:${teamId}`).emit('team:typing:stop', {
+        teamId,
+        userId,
+        userName
+      });
+    }
+  });
+
   socket.on('disconnect', () => {
     if (socket.userId) {
       connectedUsers.delete(socket.userId);
+      
+      // Remove user from all team rooms
+      for (const [teamId, users] of teamRooms.entries()) {
+        if (users.has(socket.userId)) {
+          users.delete(socket.userId);
+          if (users.size === 0) {
+            teamRooms.delete(teamId);
+          }
+        }
+      }
     }
     console.log('User disconnected:', socket.id);
   });
@@ -123,6 +181,13 @@ const emitToAll = (event, data) => {
 app.set('emitToUser', emitToUser);
 app.set('emitToAll', emitToAll);
 
+// Helper function to emit to team room
+const emitToTeam = (teamId, event, data) => {
+  io.to(`team:${teamId}`).emit(event, data);
+};
+
+app.set('emitToTeam', emitToTeam);
+
 // Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/tickets', ticketRoutes);
@@ -135,6 +200,7 @@ app.use('/api/automation', automationRoutes);
 app.use('/api/chatbot', chatbotRoutes);
 app.use('/api/reports', reportRoutes);
 app.use('/api/teams', teamRoutes);
+app.use('/api/ai-agent', aiAgentRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {

@@ -60,6 +60,20 @@ export const SocketProvider = ({ children, socket }) => {
       queryClient.invalidateQueries(['analytics']);
     });
 
+    // Handle team events
+    socket.on('team:message:new', ({ teamId, message }) => {
+      queryClient.invalidateQueries(['team-chat', teamId]);
+      toast.success('New team message!');
+    });
+
+    socket.on('team:typing:start', (data) => {
+      console.log(`${data.userName} is typing in team ${data.teamId}`);
+    });
+
+    socket.on('team:typing:stop', (data) => {
+      console.log(`${data.userName} stopped typing in team ${data.teamId}`);
+    });
+
     // Handle knowledge base events
     socket.on('knowledge:article_viewed', (data) => {
       console.log(`Article viewed: ${data.title}`);

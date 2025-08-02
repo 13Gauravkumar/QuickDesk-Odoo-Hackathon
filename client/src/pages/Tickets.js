@@ -19,7 +19,8 @@ import {
   Settings,
   Star,
   TrendingUp,
-  Workflow
+  Workflow,
+  Download
 } from 'lucide-react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { format } from 'date-fns';
@@ -341,6 +342,78 @@ const Tickets = () => {
     }
   };
 
+  // Export tickets function
+  const handleExportTickets = async (format) => {
+    try {
+      const token = localStorage.getItem('token');
+      if (!token) {
+        toast.error('Please log in to export tickets');
+        return;
+      }
+
+      toast.loading('Preparing tickets for export...');
+      
+      const params = new URLSearchParams();
+      params.append('format', format);
+      if (search) params.append('search', search);
+      if (statusFilter) params.append('status', statusFilter);
+      if (categoryFilter) params.append('category', categoryFilter);
+      if (priorityFilter) params.append('priority', priorityFilter);
+      if (sortBy) params.append('sort', sortBy);
+      
+      const response = await fetch(`/api/tickets/export?${params}`, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        if (response.status === 401) {
+          toast.error('Session expired. Please log in again.');
+          localStorage.removeItem('token');
+          window.location.href = '/login';
+          return;
+        } else if (response.status === 403) {
+          toast.error('You do not have permission to export tickets');
+          return;
+        } else {
+          throw new Error(errorData.message || 'Failed to export tickets');
+        }
+      }
+
+      if (format === 'csv') {
+        // Handle CSV download
+        const blob = await response.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `tickets-export-${new Date().toISOString().split('T')[0]}.csv`;
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+        toast.success('Tickets exported successfully as CSV');
+      } else {
+        // Handle JSON download
+        const data = await response.json();
+        const blob = new Blob([JSON.stringify(data.data, null, 2)], { type: 'application/json' });
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `tickets-export-${new Date().toISOString().split('T')[0]}.json`;
+        document.body.appendChild(a);
+        a.click();
+        window.URL.revokeObjectURL(url);
+        document.body.removeChild(a);
+        toast.success('Tickets exported successfully as JSON');
+      }
+    } catch (error) {
+      console.error('Export error:', error);
+      toast.error(error.message || 'Failed to export tickets');
+    }
+  };
+
   return (
     <div className="p-6 max-w-7xl mx-auto">
       {/* Header */}
@@ -353,6 +426,22 @@ const Tickets = () => {
             </p>
           </div>
           <div className="flex items-center space-x-3">
+            <div className="flex items-center space-x-2">
+              <button
+                onClick={() => handleExportTickets('csv')}
+                className="flex items-center space-x-2 px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+              >
+                <Download className="w-4 h-4" />
+                <span>Export CSV</span>
+              </button>
+              <button
+                onClick={() => handleExportTickets('json')}
+                className="flex items-center space-x-2 px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+              >
+                <Download className="w-4 h-4" />
+                <span>Export JSON</span>
+              </button>
+            </div>
             <button
               onClick={() => setWorkflowMode(!workflowMode)}
               className={`flex items-center space-x-2 px-4 py-2 rounded-lg transition-colors ${
@@ -650,7 +739,7 @@ const Tickets = () => {
                             to={`/tickets/${ticket._id}`}
                             className="text-lg font-semibold text-gray-900 hover:text-blue-600"
                           >
-                            {ticket.title}
+                            {ticket.subject}
                           </Link>
                           <span className={`px-2 py-1 rounded-full text-xs font-medium border ${getPriorityColor(ticket.priority)}`}>
                             {ticket.priority}

@@ -3,6 +3,7 @@ const router = express.Router();
 const { authenticateToken, authorize } = require('../middleware/auth');
 const multer = require('multer');
 const path = require('path');
+const { aiSearch, generateAISuggestions } = require('../utils/openai');
 
 // Configure multer for file uploads
 const storage = multer.diskStorage({
@@ -365,54 +366,39 @@ router.post('/ai-search', authenticateToken, async (req, res) => {
       return res.status(400).json({ message: 'Query is required' });
     }
     
-    // Simple AI-like search implementation
-    const queryLower = query.toLowerCase();
-    const searchTerms = queryLower.split(' ').filter(term => term.length > 2);
+    // Use OpenAI-powered search
+    const searchResults = await aiSearch(query, knowledgeBaseArticles);
     
-    const results = knowledgeBaseArticles
-      .map(article => {
-        let score = 0;
-        const titleLower = article.title.toLowerCase();
-        const contentLower = article.content.toLowerCase();
-        
-        // Title matches get higher scores
-        if (titleLower.includes(queryLower)) score += 10;
-        
-        // Content matches
-        if (contentLower.includes(queryLower)) score += 5;
-        
-        // Individual word matches
-        searchTerms.forEach(term => {
-          if (titleLower.includes(term)) score += 3;
-          if (contentLower.includes(term)) score += 1;
-          if (article.tags?.some(tag => tag.toLowerCase().includes(term))) score += 2;
-        });
-        
-        // Boost featured articles
-        if (article.featured) score += 2;
-        
-        // Boost by rating
-        score += (article.rating || 0) * 0.5;
-        
-        return { ...article, relevanceScore: score };
-      })
-      .filter(article => article.relevanceScore > 0)
-      .sort((a, b) => b.relevanceScore - a.relevanceScore)
-      .slice(0, 10);
-    
-    res.json({
-      query,
-      results,
-      total: results.length,
-      suggestions: generateSearchSuggestions(query)
-    });
+    res.json(searchResults);
   } catch (error) {
     console.error('AI search error:', error);
     res.status(500).json({ message: 'Error performing AI search' });
   }
 });
 
-// Generate search suggestions
+// AI-powered search suggestions
+router.post('/ai-suggestions', authenticateToken, async (req, res) => {
+  try {
+    const { query } = req.body;
+    
+    if (!query) {
+      return res.status(400).json({ message: 'Query is required' });
+    }
+    
+    const suggestions = await generateAISuggestions(query, knowledgeBaseArticles);
+    
+    res.json({
+      query,
+      suggestions,
+      enhancedByAI: true
+    });
+  } catch (error) {
+    console.error('AI suggestions error:', error);
+    res.status(500).json({ message: 'Error generating AI suggestions' });
+  }
+});
+
+// Generate basic search suggestions (fallback)
 const generateSearchSuggestions = (query) => {
   const suggestions = [];
   const queryLower = query.toLowerCase();

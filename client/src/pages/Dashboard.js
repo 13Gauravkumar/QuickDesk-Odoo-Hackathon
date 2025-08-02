@@ -395,7 +395,7 @@ const Dashboard = () => {
                 {recentTickets.tickets.map((ticket) => (
                   <div key={ticket._id} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
                     <div className="flex-1">
-                      <h3 className="font-medium text-gray-900">{ticket.title}</h3>
+                      <h3 className="font-medium text-gray-900">{ticket.subject}</h3>
                       <p className="text-sm text-gray-600">{ticket.description}</p>
                       <div className="flex items-center space-x-4 mt-2 text-xs text-gray-500">
                         <span>#{ticket._id.slice(-6)}</span>

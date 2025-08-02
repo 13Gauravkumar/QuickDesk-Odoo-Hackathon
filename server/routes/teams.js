@@ -199,6 +199,85 @@ router.put('/:id', authenticateToken, async (req, res) => {
   }
 });
 
+// @route   POST /api/teams/:id/invite
+// @desc    Invite member to team by email
+// @access  Private (Owner/Admin)
+router.post('/:id/invite', authenticateToken, async (req, res) => {
+  try {
+    const { email, role = 'member' } = req.body;
+    
+    if (!email) {
+      return res.status(400).json({ message: 'Email is required' });
+    }
+    
+    const team = await Team.findById(req.params.id);
+    if (!team) {
+      return res.status(404).json({ message: 'Team not found' });
+    }
+    
+    // Check if user can invite members
+    if (!team.isOwner(req.user.id) && !team.hasPermission(req.user.id, 'canInvite')) {
+      return res.status(403).json({ message: 'Access denied' });
+    }
+    
+    // Check if team allows member invites
+    if (!team.settings.allowMemberInvites) {
+      return res.status(400).json({ message: 'Team does not allow member invites' });
+    }
+    
+    // Check if team is full
+    if (team.isFull) {
+      return res.status(400).json({ message: 'Team is at maximum capacity' });
+    }
+    
+    // Check if user with this email already exists
+    const existingUser = await User.findOne({ email: email.toLowerCase() });
+    
+    if (existingUser) {
+      // Check if user is already a member
+      const isAlreadyMember = team.members.some(m => m.user.toString() === existingUser._id.toString());
+      if (isAlreadyMember) {
+        return res.status(400).json({ message: 'User is already a member of this team' });
+      }
+      
+      // Check if user is the owner
+      if (team.owner.toString() === existingUser._id.toString()) {
+        return res.status(400).json({ message: 'User is already the owner of this team' });
+      }
+      
+      // Add existing user to team
+      await team.addMember(existingUser._id, role);
+      
+      // Populate references
+      await team.populate([
+        { path: 'owner', select: 'name email avatar' },
+        { path: 'members.user', select: 'name email avatar' }
+      ]);
+      
+      res.json({ 
+        team,
+        message: 'User added to team successfully',
+        userExists: true
+      });
+    } else {
+      // Create invitation for new user
+      // For now, we'll just return success
+      // In a real application, you would:
+      // 1. Create an invitation record
+      // 2. Send an email invitation
+      // 3. Store the invitation in the database
+      
+      res.json({ 
+        message: 'Invitation sent successfully. User will be added when they register.',
+        userExists: false
+      });
+    }
+  } catch (error) {
+    console.error('Error inviting member:', error);
+    res.status(500).json({ message: error.message || 'Server error' });
+  }
+});
+
 // @route   POST /api/teams/:id/members
 // @desc    Add member to team
 // @access  Private (Owner/Admin)
@@ -340,9 +419,9 @@ router.post('/:id/chat', authenticateToken, upload.array('attachments', 5), asyn
     const populatedTeam = await team.populate('chat.messages.sender', 'name email avatar');
     const newMessage = populatedTeam.chat.messages[populatedTeam.chat.messages.length - 1];
     
-    // Emit real-time updates
-    const emitToAll = req.app.get('emitToAll');
-    emitToAll('team:message:new', {
+    // Emit real-time updates to team room only
+    const io = req.app.get('io');
+    io.to(`team:${team._id}`).emit('team:message:new', {
       teamId: team._id,
       message: newMessage
     });
