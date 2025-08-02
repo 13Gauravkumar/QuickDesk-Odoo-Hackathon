@@ -48,6 +48,10 @@ router.post('/', authenticateToken, authorize(['admin']), async (req, res) => {
     
     await category.save();
     
+    // Emit real-time event
+    const emitToAll = req.app.get('emitToAll');
+    emitToAll('category:created', { category: { id: category._id, name: category.name, color: category.color } });
+    
     res.status(201).json({ category });
   } catch (error) {
     console.error('Error creating category:', error);
@@ -75,6 +79,10 @@ router.patch('/:id', authenticateToken, authorize(['admin']), async (req, res) =
     if (!category) {
       return res.status(404).json({ message: 'Category not found' });
     }
+    
+    // Emit real-time event
+    const emitToAll = req.app.get('emitToAll');
+    emitToAll('category:updated', { category: { id: category._id, name: category.name, color: category.color } });
     
     res.json({ category });
   } catch (error) {

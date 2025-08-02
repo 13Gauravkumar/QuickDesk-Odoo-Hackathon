@@ -160,6 +160,36 @@ io.on('connection', (socket) => {
   socket.on('broadcast:update', (data) => {
     io.emit('realtime:update', data);
   });
+
+  // Handle system status updates
+  socket.on('system:status_request', () => {
+    const systemStatus = {
+      database: { status: 'online', latency: '12ms' },
+      realtime: { status: 'active', connections: io.engine.clientsCount },
+      ai: { status: 'available', responseTime: '1.2s' },
+      storage: { status: 'healthy', usage: '68%' },
+      network: { status: 'stable', bandwidth: '2.1GB/s' }
+    };
+    socket.emit('system:status_update', systemStatus);
+  });
+
+  // Handle active users tracking
+  socket.on('users:active_request', () => {
+    const activeUsers = Array.from(connectedUsers.keys()).slice(0, 10);
+    socket.emit('users:active_update', { users: activeUsers });
+  });
+
+  // Handle performance metrics updates
+  socket.on('performance:metrics_request', () => {
+    const performanceMetrics = {
+      avgResponseTime: '2.5h',
+      resolutionRate: '85%',
+      slaCompliance: '92%',
+      activeTickets: 45,
+      resolvedToday: 12
+    };
+    socket.emit('performance:metrics_update', performanceMetrics);
+  });
 });
 
 // Make io available to routes

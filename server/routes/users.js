@@ -1,5 +1,6 @@
 const express = require('express');
 const { body, validationResult } = require('express-validator');
+const bcrypt = require('bcryptjs');
 const User = require('../models/User');
 const Ticket = require('../models/Ticket');
 const { authenticateToken, authorize } = require('../middleware/auth');
@@ -27,6 +28,63 @@ router.get('/agents', authenticateToken, authorize(['admin']), async (req, res) 
     res.json({ agents });
   } catch (error) {
     console.error('Error fetching agents:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// Create new user (Admin only)
+router.post('/', authenticateToken, authorize(['admin']), [
+  body('name').notEmpty().withMessage('Name is required'),
+  body('email').isEmail().withMessage('Valid email is required'),
+  body('password').isLength({ min: 6 }).withMessage('Password must be at least 6 characters'),
+  body('role').isIn(['user', 'agent', 'admin']).withMessage('Valid role is required')
+], async (req, res) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ errors: errors.array() });
+  }
+
+  try {
+    const { name, email, password, role } = req.body;
+
+    // Check if user already exists
+    const existingUser = await User.findOne({ email });
+    if (existingUser) {
+      return res.status(400).json({ message: 'User already exists' });
+    }
+
+    // Hash password
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(password, salt);
+
+    // Create user
+    const user = new User({
+      name,
+      email,
+      password: hashedPassword,
+      role,
+      isActive: true
+    });
+
+    await user.save();
+
+    // Emit real-time event
+    const emitToAll = req.app.get('emitToAll');
+    emitToAll('user:created', { user: { id: user._id, name: user.name, email: user.email, role: user.role } });
+
+    res.status(201).json({
+      success: true,
+      message: 'User created successfully',
+      data: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        isActive: user.isActive
+      }
+    });
+  } catch (error) {
+    console.error('Error creating user:', error);
     res.status(500).json({ message: 'Server error' });
   }
 });
@@ -67,6 +125,10 @@ router.patch('/:id', authenticateToken, authorize(['admin']), async (req, res) =
       return res.status(404).json({ message: 'User not found' });
     }
 
+    // Emit real-time event
+    const emitToAll = req.app.get('emitToAll');
+    emitToAll('user:updated', { user: { id: user._id, name: user.name, email: user.email, role: user.role, isActive: user.isActive } });
+
     res.json({ user });
   } catch (error) {
     console.error('Error updating user:', error);
@@ -86,6 +148,10 @@ router.delete('/:id', authenticateToken, authorize(['admin']), async (req, res) 
     if (!user) {
       return res.status(404).json({ message: 'User not found' });
     }
+
+    // Emit real-time event
+    const emitToAll = req.app.get('emitToAll');
+    emitToAll('user:deleted', { userId: user._id, userName: user.name });
 
     res.json({ message: 'User deleted successfully' });
   } catch (error) {
