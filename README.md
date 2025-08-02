@@ -2,6 +2,12 @@
 
 A modern, real-time help desk solution built with the MERN stack (MongoDB, Express.js, React, Node.js) featuring Socket.IO for real-time updates, comprehensive security measures, and a responsive UI.
 
+## TEAM MEMBERS
+
+ 1. SAHIL GUPTA
+ 2. GAURAV KUMAR
+ 3. HARSH KUMAR
+
 ## 🚀 Features
 
 ### Core Functionality
@@ -269,13 +275,6 @@ CLIENT_URL=https://your-domain.com
 4. Push to the branch (`git push origin feature/amazing-feature`)
 5. Open a Pull Request
 
-## 📄 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## 🆘 Support
-
-For support, email support@quickdesk.com or create an issue in the repository.
 
 ## 🔄 Version History
 
