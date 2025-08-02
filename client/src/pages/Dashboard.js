@@ -18,7 +18,11 @@ import {
   Bell,
   Star,
   Activity,
-  BarChart3
+  BarChart3,
+  Kanban,
+  MoreHorizontal,
+  Users,
+  MessageSquare
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { format } from 'date-fns';
@@ -219,11 +223,11 @@ const Dashboard = () => {
       color: 'bg-green-500 hover:bg-green-600'
     },
     {
-      title: 'Search Tickets',
-      description: 'Find specific tickets quickly',
-      icon: Search,
-      link: '/tickets?search=',
-      color: 'bg-purple-500 hover:bg-purple-600'
+      title: 'Teams',
+      description: 'Manage teams and collaborate',
+      icon: Users,
+      link: '/teams',
+      color: 'bg-teal-500 hover:bg-teal-600'
     },
     {
       title: 'Knowledge Base',
@@ -284,46 +288,52 @@ const Dashboard = () => {
   };
 
   return (
-    <div className="p-6 max-w-7xl mx-auto">
-      {/* Header */}
-      <div className="mb-8">
+    <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
+      {/* Jira-style Header */}
+      <div className="bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 px-6 py-4">
         <div className="flex items-center justify-between">
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900 mb-2">Dashboard</h1>
-            <p className="text-gray-600">
-              Welcome back, {user?.name}! Here's what's happening with your tickets.
-            </p>
-          </div>
-          <div className="flex items-center space-x-3">
-            <div className="flex items-center space-x-2 text-sm text-gray-600">
-              <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
-              <span>Real-time updates active</span>
+            <div className="flex items-center space-x-4">
+              <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Dashboard</h1>
+              <div className="flex items-center space-x-2">
+                <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+                <span className="text-sm text-gray-600 dark:text-gray-400">Live</span>
+              </div>
             </div>
-            {notifications.length > 0 && (
-              <div className="relative">
-                <Bell className="w-5 h-5 text-gray-600" />
+          <div className="flex items-center space-x-3">
+            <div className="relative">
+              <Bell className="w-5 h-5 text-gray-600 hover:text-gray-800 cursor-pointer" />
+              {notifications.length > 0 && (
                 <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full w-4 h-4 flex items-center justify-center">
                   {notifications.length}
                 </span>
+              )}
+            </div>
+            <div className="flex items-center space-x-2">
+              <div className="w-8 h-8 bg-blue-600 rounded-full flex items-center justify-center">
+                <span className="text-white text-sm font-semibold">
+                  {user?.name?.charAt(0).toUpperCase()}
+                </span>
               </div>
-            )}
+              <span className="text-sm font-medium text-gray-900">{user?.name}</span>
+            </div>
           </div>
         </div>
       </div>
 
-      {/* Stats Cards */}
+      <div className="p-6 max-w-7xl mx-auto">
+        {/* Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
         {statsCards.map((card, index) => {
           const Icon = card.icon;
           return (
-            <div key={index} className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+            <div key={index} className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-6">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm font-medium text-gray-600">{card.title}</p>
-                  <p className="text-2xl font-bold text-gray-900">{card.value}</p>
+                  <p className="text-sm font-medium text-gray-600 dark:text-gray-400">{card.title}</p>
+                  <p className="text-2xl font-bold text-gray-900 dark:text-white">{card.value}</p>
                   <div className="flex items-center space-x-1 mt-1">
                     {getTrendIcon(card.trend)}
-                    <span className="text-xs text-gray-500">{card.change}</span>
+                    <span className="text-xs text-gray-500 dark:text-gray-400">{card.change}</span>
                   </div>
                 </div>
                 <div className={`p-3 rounded-lg ${card.color}`}>
@@ -339,8 +349,8 @@ const Dashboard = () => {
         {/* Main Content */}
         <div className="lg:col-span-2 space-y-8">
           {/* Quick Actions */}
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-            <h2 className="text-lg font-semibold text-gray-900 mb-4">Quick Actions</h2>
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-6">
+            <h2 className="text-lg font-semibold text-gray-900 dark:text-white mb-4">Quick Actions</h2>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
               {quickActions.map((action, index) => {
                 const Icon = action.icon;
@@ -364,10 +374,10 @@ const Dashboard = () => {
           </div>
 
           {/* Recent Tickets */}
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-sm border border-gray-200 dark:border-gray-700 p-6">
             <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-semibold text-gray-900">Recent Tickets</h2>
-              <Link to="/tickets" className="text-blue-600 hover:text-blue-700 text-sm font-medium">
+              <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Recent Tickets</h2>
+              <Link to="/tickets" className="text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 text-sm font-medium">
                 View All
               </Link>
             </div>
@@ -533,6 +543,7 @@ const Dashboard = () => {
             </div>
           </div>
         </div>
+      </div>
       </div>
     </div>
   );

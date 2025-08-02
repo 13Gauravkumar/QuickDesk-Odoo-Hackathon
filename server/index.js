@@ -21,6 +21,7 @@ const dashboardRoutes = require('./routes/dashboard');
 const automationRoutes = require('./routes/automation');
 const chatbotRoutes = require('./routes/chatbot');
 const reportRoutes = require('./routes/reports');
+const teamRoutes = require('./routes/teams');
 const { authenticateToken } = require('./middleware/auth');
 const { sendEmail } = require('./utils/email');
 
@@ -133,6 +134,7 @@ app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/automation', automationRoutes);
 app.use('/api/chatbot', chatbotRoutes);
 app.use('/api/reports', reportRoutes);
+app.use('/api/teams', teamRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {

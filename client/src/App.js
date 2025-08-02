@@ -3,6 +3,7 @@ import { Routes, Route, Navigate } from 'react-router-dom';
 import { io } from 'socket.io-client';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { SocketProvider } from './contexts/SocketContext';
+import { ThemeProvider } from './contexts/ThemeContext';
 import PrivateRoute from './components/PrivateRoute';
 import Layout from './components/Layout';
 import Login from './pages/Login';
@@ -13,12 +14,12 @@ import TicketDetail from './pages/TicketDetail';
 import CreateTicket from './pages/CreateTicket';
 import Profile from './pages/Profile';
 import Admin from './pages/Admin';
-import NotFound from './pages/NotFound';
 import Analytics from './pages/Analytics';
 import KnowledgeBase from './pages/KnowledgeBase';
+import Teams from './pages/Teams';
 
 const AppContent = () => {
-  const { user, isAuthenticated } = useAuth();
+  const { user, isAuthenticated, loading } = useAuth();
   const [socket, setSocket] = useState(null);
 
   useEffect(() => {
@@ -46,6 +47,15 @@ const AppContent = () => {
     }
   }, [isAuthenticated, user]);
 
+  // Show loading spinner while authentication is being checked
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="loading-spinner"></div>
+      </div>
+    );
+  }
+
   if (!isAuthenticated) {
     return (
       <Routes>
@@ -56,11 +66,14 @@ const AppContent = () => {
     );
   }
 
+  // Debug logging
+  console.log('AppContent render:', { isAuthenticated, user, loading });
+
   return (
     <SocketProvider socket={socket}>
       <Layout>
         <Routes>
-          <Route path="/" element={<Navigate to="/dashboard" replace />} />
+          <Route path="/" element={<Dashboard />} />
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/tickets" element={<Tickets />} />
           <Route path="/tickets/create" element={<CreateTicket />} />
@@ -76,7 +89,8 @@ const AppContent = () => {
           />
           <Route path="/analytics" element={<PrivateRoute allowedRoles={['admin', 'agent']}><Analytics /></PrivateRoute>} />
           <Route path="/knowledge-base" element={<PrivateRoute><KnowledgeBase /></PrivateRoute>} />
-          <Route path="*" element={<NotFound />} />
+          <Route path="/teams" element={<PrivateRoute><Teams /></PrivateRoute>} />
+          <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Routes>
       </Layout>
     </SocketProvider>
@@ -85,9 +99,11 @@ const AppContent = () => {
 
 const App = () => {
   return (
-    <AuthProvider>
-      <AppContent />
-    </AuthProvider>
+    <ThemeProvider>
+      <AuthProvider>
+        <AppContent />
+      </AuthProvider>
+    </ThemeProvider>
   );
 };
 

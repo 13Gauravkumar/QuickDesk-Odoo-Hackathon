@@ -379,4 +379,97 @@ router.get('/realtime', authenticateToken, authorize(['admin', 'agent']), async 
   }
 });
 
+// @route   GET /api/analytics/performance
+// @desc    Get performance metrics for dashboard
+// @access  Private
+router.get('/performance', authenticateToken, async (req, res) => {
+  try {
+    // Calculate average response time
+    const responseTimeStats = await Ticket.aggregate([
+      {
+        $match: {
+          firstResponseAt: { $exists: true },
+          status: { $in: ['resolved', 'closed'] }
+        }
+      },
+      {
+        $group: {
+          _id: null,
+          avgResponseTime: {
+            $avg: {
+              $subtract: ['$firstResponseAt', '$createdAt']
+            }
+          },
+          totalResponsiveTickets: { $sum: 1 }
+        }
+      }
+    ]);
+
+    // Calculate resolution rate
+    const resolutionStats = await Ticket.aggregate([
+      {
+        $group: {
+          _id: null,
+          totalTickets: { $sum: 1 },
+          resolvedTickets: {
+            $sum: { $cond: [{ $eq: ['$status', 'resolved'] }, 1, 0] }
+          },
+          closedTickets: {
+            $sum: { $cond: [{ $eq: ['$status', 'closed'] }, 1, 0] }
+          }
+        }
+      }
+    ]);
+
+    // Calculate SLA compliance (tickets resolved within 24 hours)
+    const slaStats = await Ticket.aggregate([
+      {
+        $match: {
+          status: { $in: ['resolved', 'closed'] },
+          resolvedAt: { $exists: true }
+        }
+      },
+      {
+        $group: {
+          _id: null,
+          totalResolved: { $sum: 1 },
+          slaCompliant: {
+            $sum: {
+              $cond: [
+                {
+                  $lte: [
+                    { $subtract: ['$resolvedAt', '$createdAt'] },
+                    24 * 60 * 60 * 1000 // 24 hours in milliseconds
+                  ]
+                },
+                1,
+                0
+              ]
+            }
+          }
+        }
+      }
+    ]);
+
+    const avgResponseTime = responseTimeStats[0]?.avgResponseTime || 0;
+    const resolutionData = resolutionStats[0] || { totalTickets: 0, resolvedTickets: 0, closedTickets: 0 };
+    const slaData = slaStats[0] || { totalResolved: 0, slaCompliant: 0 };
+
+    const performanceData = {
+      avgResponseTime: Math.round(avgResponseTime / (60 * 60 * 1000) * 10) / 10, // Convert to hours
+      resolutionRate: resolutionData.totalTickets > 0 
+        ? Math.round((resolutionData.resolvedTickets + resolutionData.closedTickets) / resolutionData.totalTickets * 100)
+        : 0,
+      slaCompliance: slaData.totalResolved > 0 
+        ? Math.round(slaData.slaCompliant / slaData.totalResolved * 100)
+        : 0
+    };
+
+    res.json(performanceData);
+  } catch (error) {
+    console.error('Error fetching performance metrics:', error);
+    res.status(500).json({ message: 'Error fetching performance metrics' });
+  }
+});
+
 module.exports = router; 
