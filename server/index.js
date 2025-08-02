@@ -17,10 +17,15 @@ const categoryRoutes = require('./routes/categories');
 const userRoutes = require('./routes/users');
 const analyticsRoutes = require('./routes/analytics');
 const knowledgeBaseRoutes = require('./routes/knowledge-base');
+const dashboardRoutes = require('./routes/dashboard');
+const automationRoutes = require('./routes/automation');
+const chatbotRoutes = require('./routes/chatbot');
+const reportRoutes = require('./routes/reports');
 const { authenticateToken } = require('./middleware/auth');
 const { sendEmail } = require('./utils/email');
 
 const app = express();
+app.set('trust proxy', 1); // Trust first proxy
 const server = http.createServer(app);
 const io = socketIo(server, {
   cors: {
@@ -82,10 +87,40 @@ io.on('connection', (socket) => {
     }
     console.log('User disconnected:', socket.id);
   });
+
+  // Handle real-time notifications
+  socket.on('notification:send', (data) => {
+    const { userId, notification } = data;
+    const targetSocketId = connectedUsers.get(userId);
+    if (targetSocketId) {
+      io.to(targetSocketId).emit('notification:new', notification);
+    }
+  });
+
+  // Handle real-time updates for all users
+  socket.on('broadcast:update', (data) => {
+    io.emit('realtime:update', data);
+  });
 });
 
 // Make io available to routes
 app.set('io', io);
+
+// Helper function to emit real-time events
+const emitToUser = (userId, event, data) => {
+  const socketId = connectedUsers.get(userId);
+  if (socketId) {
+    io.to(socketId).emit(event, data);
+  }
+};
+
+const emitToAll = (event, data) => {
+  io.emit(event, data);
+};
+
+// Make helper functions available to routes
+app.set('emitToUser', emitToUser);
+app.set('emitToAll', emitToAll);
 
 // Routes
 app.use('/api/auth', authRoutes);
@@ -94,6 +129,10 @@ app.use('/api/categories', categoryRoutes);
 app.use('/api/users', userRoutes);
 app.use('/api/analytics', analyticsRoutes);
 app.use('/api/knowledge-base', knowledgeBaseRoutes);
+app.use('/api/dashboard', dashboardRoutes);
+app.use('/api/automation', automationRoutes);
+app.use('/api/chatbot', chatbotRoutes);
+app.use('/api/reports', reportRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {

@@ -15,6 +15,7 @@ import {
   BookOpen
 } from 'lucide-react';
 import Notifications from './Notifications';
+import RealTimeStatus from './RealTimeStatus';
 
 const Layout = ({ children }) => {
   const { user, logout } = useAuth();
@@ -124,11 +125,8 @@ const Layout = ({ children }) => {
             </div>
 
             <div className="flex items-center space-x-4">
-              {/* Connection Status */}
-              <div className="flex items-center space-x-2 text-sm text-gray-500">
-                <Wifi className="w-4 h-4 text-green-500" />
-                <span>Connected</span>
-              </div>
+              {/* Real-time Status */}
+              <RealTimeStatus />
 
               {/* Notifications */}
               <Notifications />

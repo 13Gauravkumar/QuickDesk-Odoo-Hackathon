@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../contexts/AuthContext';
+import { useSocket } from '../contexts/SocketContext';
 import { Bell, X, CheckCircle, AlertCircle, MessageSquare, User, Tag } from 'lucide-react';
 import { format } from 'date-fns';
 
 const Notifications = () => {
   const { user } = useAuth();
+  const { socket } = useSocket();
   const [notifications, setNotifications] = useState([]);
   const [isOpen, setIsOpen] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
@@ -42,8 +44,7 @@ const Notifications = () => {
     };
 
     // Listen for socket events
-    const socket = window.socket;
-    if (socket) {
+    if (socket && socket.on) {
       socket.on('notification:new', handleNewNotification);
       socket.on('ticket:created', (data) => {
         handleNewNotification({
@@ -72,14 +73,14 @@ const Notifications = () => {
     }
 
     return () => {
-      if (socket) {
+      if (socket && socket.off) {
         socket.off('notification:new', handleNewNotification);
         socket.off('ticket:created', handleNewNotification);
         socket.off('ticket:updated', handleNewNotification);
         socket.off('ticket:commentAdded', handleNewNotification);
       }
     };
-  }, []);
+  }, [socket]);
 
   const markAsRead = (notificationId) => {
     setNotifications(prev => {

@@ -48,7 +48,18 @@ router.get('/', authenticateToken, async (req, res) => {
     const limit = parseInt(req.query.limit) || 10;
     const skip = page * limit;
     
-    const { search, status, category, priority, sort = '-createdAt' } = req.query;
+    const { 
+      search, 
+      status, 
+      category, 
+      priority, 
+      sort = '-createdAt',
+      overdue,
+      highPriority,
+      unassigned,
+      myTickets,
+      recentActivity
+    } = req.query;
     
     // Build query
     let query = {};
@@ -60,7 +71,7 @@ router.get('/', authenticateToken, async (req, res) => {
     
     if (search) {
       query.$or = [
-        { subject: { $regex: search, $options: 'i' } },
+        { title: { $regex: search, $options: 'i' } },
         { description: { $regex: search, $options: 'i' } }
       ];
     }
@@ -75,6 +86,30 @@ router.get('/', authenticateToken, async (req, res) => {
     
     if (priority) {
       query.priority = priority;
+    }
+
+    // Smart filters
+    if (overdue === 'true') {
+      query.$and = [
+        { status: 'open' },
+        { createdAt: { $lt: new Date(Date.now() - 24 * 60 * 60 * 1000) } }
+      ];
+    }
+
+    if (highPriority === 'true') {
+      query.priority = { $in: ['urgent', 'high'] };
+    }
+
+    if (unassigned === 'true') {
+      query.assignedTo = { $exists: false };
+    }
+
+    if (myTickets === 'true') {
+      query.assignedTo = req.user.id;
+    }
+
+    if (recentActivity === 'true') {
+      query.updatedAt = { $gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) };
     }
     
     const tickets = await Ticket.find(query)
@@ -99,6 +134,366 @@ router.get('/', authenticateToken, async (req, res) => {
   } catch (error) {
     console.error('Error fetching tickets:', error);
     res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// @route   GET /api/tickets/ai-suggestions
+// @desc    Get AI-powered search suggestions
+// @access  Private
+router.get('/ai-suggestions', authenticateToken, async (req, res) => {
+  try {
+    const { query } = req.query;
+    
+    if (!query || query.length < 3) {
+      return res.json([]);
+    }
+
+    // Simple AI-like suggestions based on common patterns
+    const suggestions = [];
+    const queryLower = query.toLowerCase();
+
+    // Common ticket patterns
+    const patterns = [
+      { pattern: 'login', suggestion: 'Search for login issues' },
+      { pattern: 'password', suggestion: 'Search for password reset issues' },
+      { pattern: 'upload', suggestion: 'Search for file upload problems' },
+      { pattern: 'download', suggestion: 'Search for download issues' },
+      { pattern: 'error', suggestion: 'Search for error messages' },
+      { pattern: 'slow', suggestion: 'Search for performance issues' },
+      { pattern: 'billing', suggestion: 'Search for billing questions' },
+      { pattern: 'payment', suggestion: 'Search for payment issues' },
+      { pattern: 'account', suggestion: 'Search for account management' },
+      { pattern: 'security', suggestion: 'Search for security concerns' }
+    ];
+
+    patterns.forEach(({ pattern, suggestion }) => {
+      if (queryLower.includes(pattern) || pattern.includes(queryLower)) {
+        suggestions.push({
+          suggestion,
+          query: pattern,
+          type: 'pattern'
+        });
+      }
+    });
+
+    // Status-based suggestions
+    const statusSuggestions = [
+      { status: 'open', suggestion: 'Show open tickets' },
+      { status: 'in-progress', suggestion: 'Show tickets in progress' },
+      { status: 'resolved', suggestion: 'Show resolved tickets' }
+    ];
+
+    statusSuggestions.forEach(({ status, suggestion }) => {
+      if (queryLower.includes(status)) {
+        suggestions.push({
+          suggestion,
+          query: `status:${status}`,
+          type: 'status'
+        });
+      }
+    });
+
+    // Priority-based suggestions
+    const prioritySuggestions = [
+      { priority: 'urgent', suggestion: 'Show urgent tickets' },
+      { priority: 'high', suggestion: 'Show high priority tickets' },
+      { priority: 'medium', suggestion: 'Show medium priority tickets' },
+      { priority: 'low', suggestion: 'Show low priority tickets' }
+    ];
+
+    prioritySuggestions.forEach(({ priority, suggestion }) => {
+      if (queryLower.includes(priority)) {
+        suggestions.push({
+          suggestion,
+          query: `priority:${priority}`,
+          type: 'priority'
+        });
+      }
+    });
+
+    res.json(suggestions.slice(0, 5));
+  } catch (error) {
+    console.error('Error generating AI suggestions:', error);
+    res.status(500).json({ message: 'Error generating suggestions' });
+  }
+});
+
+// @route   POST /api/tickets/bulk
+// @desc    Perform bulk operations on tickets
+// @access  Private (Admin/Agent)
+router.post('/bulk', authenticateToken, authorize(['admin', 'agent']), async (req, res) => {
+  try {
+    const { operation, ticketIds, data } = req.body;
+
+    if (!operation || !ticketIds || !Array.isArray(ticketIds)) {
+      return res.status(400).json({ message: 'Invalid request parameters' });
+    }
+
+    let updateData = {};
+    let emailTemplate = null;
+
+    switch (operation) {
+      case 'status':
+        updateData.status = data.status;
+        updateData.updatedAt = new Date();
+        if (data.status === 'resolved') {
+          updateData.resolvedAt = new Date();
+        }
+        emailTemplate = 'ticket_status_update';
+        break;
+
+      case 'assign':
+        updateData.assignedTo = data.assignee;
+        updateData.updatedAt = new Date();
+        emailTemplate = 'ticket_assigned';
+        break;
+
+      case 'priority':
+        updateData.priority = data.priority;
+        updateData.updatedAt = new Date();
+        emailTemplate = 'ticket_priority_update';
+        break;
+
+      case 'category':
+        updateData.category = data.category;
+        updateData.updatedAt = new Date();
+        break;
+
+      case 'delete':
+        // Delete tickets
+        await Ticket.deleteMany({ _id: { $in: ticketIds } });
+        return res.json({ message: `${ticketIds.length} tickets deleted successfully` });
+
+      default:
+        return res.status(400).json({ message: 'Invalid operation' });
+    }
+
+    // Update tickets
+    const result = await Ticket.updateMany(
+      { _id: { $in: ticketIds } },
+      updateData
+    );
+
+    // Send notifications if email template is specified
+    if (emailTemplate) {
+      const tickets = await Ticket.find({ _id: { $in: ticketIds } })
+        .populate('createdBy', 'email name')
+        .populate('assignedTo', 'email name');
+
+      for (const ticket of tickets) {
+        if (ticket.createdBy?.email) {
+          await sendEmail(
+            ticket.createdBy.email,
+            emailTemplates[emailTemplate].subject,
+            emailTemplates[emailTemplate].body(ticket, req.user)
+          );
+        }
+      }
+    }
+
+    // Emit real-time updates
+    const emitToAll = req.app.get('emitToAll');
+    const emitToUser = req.app.get('emitToUser');
+    
+    // Emit bulk operation event
+    emitToAll('ticket:bulk_updated', { 
+      operation, 
+      ticketIds, 
+      modifiedCount: result.modifiedCount 
+    });
+    
+    // Emit dashboard stats update
+    emitToAll('dashboard:stats:updated', { type: 'bulk_operation', operation });
+    
+    // Emit notifications to affected users
+    if (operation === 'assign' && data.assignee) {
+      emitToUser(data.assignee, 'notification:new', {
+        type: 'assignment',
+        title: 'Tickets Assigned',
+        message: `You have been assigned to ${result.modifiedCount} tickets`,
+        data: { ticketIds, count: result.modifiedCount }
+      });
+    }
+
+    res.json({ 
+      message: `${result.modifiedCount} tickets updated successfully`,
+      modifiedCount: result.modifiedCount
+    });
+  } catch (error) {
+    console.error('Error performing bulk operation:', error);
+    res.status(500).json({ message: 'Error performing bulk operation' });
+  }
+});
+
+// @route   GET /api/tickets/workflow
+// @desc    Get workflow automation rules and suggestions
+// @access  Private (Admin/Agent)
+router.get('/workflow', authenticateToken, authorize(['admin', 'agent']), async (req, res) => {
+  try {
+    // Get workflow statistics and suggestions
+    const stats = await Ticket.aggregate([
+      {
+        $group: {
+          _id: null,
+          totalTickets: { $sum: 1 },
+          openTickets: { $sum: { $cond: [{ $eq: ['$status', 'open'] }, 1, 0] } },
+          overdueTickets: {
+            $sum: {
+              $cond: [
+                {
+                  $and: [
+                    { $eq: ['$status', 'open'] },
+                    { $lt: ['$createdAt', new Date(Date.now() - 24 * 60 * 60 * 1000)] }
+                  ]
+                },
+                1,
+                0
+              ]
+            }
+          },
+          unassignedTickets: {
+            $sum: { $cond: [{ $eq: ['$assignedTo', null] }, 1, 0] }
+          }
+        }
+      }
+    ]);
+
+    // Get agent workload
+    const agentWorkload = await Ticket.aggregate([
+      {
+        $match: { assignedTo: { $exists: true } }
+      },
+      {
+        $group: {
+          _id: '$assignedTo',
+          ticketCount: { $sum: 1 },
+          openCount: { $sum: { $cond: [{ $eq: ['$status', 'open'] }, 1, 0] } }
+        }
+      },
+      {
+        $lookup: {
+          from: 'users',
+          localField: '_id',
+          foreignField: '_id',
+          as: 'agent'
+        }
+      }
+    ]);
+
+    // Generate workflow suggestions
+    const suggestions = [];
+
+    if (stats[0]?.overdueTickets > 0) {
+      suggestions.push({
+        type: 'warning',
+        message: `${stats[0].overdueTickets} tickets are overdue`,
+        action: 'review_overdue_tickets'
+      });
+    }
+
+    if (stats[0]?.unassignedTickets > 0) {
+      suggestions.push({
+        type: 'info',
+        message: `${stats[0].unassignedTickets} tickets need assignment`,
+        action: 'assign_unassigned_tickets'
+      });
+    }
+
+    // Find agents with high workload
+    const highWorkloadAgents = agentWorkload.filter(agent => agent.openCount > 5);
+    if (highWorkloadAgents.length > 0) {
+      suggestions.push({
+        type: 'warning',
+        message: `${highWorkloadAgents.length} agents have high workload`,
+        action: 'redistribute_workload'
+      });
+    }
+
+    res.json({
+      stats: stats[0] || {},
+      agentWorkload,
+      suggestions
+    });
+  } catch (error) {
+    console.error('Error fetching workflow data:', error);
+    res.status(500).json({ message: 'Error fetching workflow data' });
+  }
+});
+
+// @route   POST /api/tickets/auto-assign
+// @desc    Automatically assign tickets based on workload
+// @access  Private (Admin/Agent)
+router.post('/auto-assign', authenticateToken, authorize(['admin', 'agent']), async (req, res) => {
+  try {
+    const { ticketIds } = req.body;
+
+    if (!ticketIds || !Array.isArray(ticketIds)) {
+      return res.status(400).json({ message: 'Invalid ticket IDs' });
+    }
+
+    // Get available agents
+    const agents = await User.find({ role: { $in: ['admin', 'agent'] } });
+    
+    if (agents.length === 0) {
+      return res.status(400).json({ message: 'No agents available for assignment' });
+    }
+
+    // Get current workload for each agent
+    const agentWorkload = await Ticket.aggregate([
+      {
+        $match: { 
+          assignedTo: { $exists: true },
+          status: { $in: ['open', 'in-progress'] }
+        }
+      },
+      {
+        $group: {
+          _id: '$assignedTo',
+          openTickets: { $sum: 1 }
+        }
+      }
+    ]);
+
+    // Create workload map
+    const workloadMap = new Map();
+    agents.forEach(agent => {
+      const workload = agentWorkload.find(w => w._id.toString() === agent._id.toString());
+      workloadMap.set(agent._id.toString(), workload ? workload.openTickets : 0);
+    });
+
+    // Assign tickets to agents with least workload
+    const assignments = [];
+    for (const ticketId of ticketIds) {
+      const leastBusyAgent = agents.reduce((min, agent) => {
+        const minWorkload = workloadMap.get(min._id.toString()) || 0;
+        const agentWorkload = workloadMap.get(agent._id.toString()) || 0;
+        return agentWorkload < minWorkload ? agent : min;
+      });
+
+      // Update ticket assignment
+      await Ticket.findByIdAndUpdate(ticketId, {
+        assignedTo: leastBusyAgent._id,
+        updatedAt: new Date()
+      });
+
+      // Update workload map
+      const currentWorkload = workloadMap.get(leastBusyAgent._id.toString()) || 0;
+      workloadMap.set(leastBusyAgent._id.toString(), currentWorkload + 1);
+
+      assignments.push({
+        ticketId,
+        agentId: leastBusyAgent._id,
+        agentName: leastBusyAgent.name
+      });
+    }
+
+    res.json({
+      message: `${assignments.length} tickets assigned successfully`,
+      assignments
+    });
+  } catch (error) {
+    console.error('Error auto-assigning tickets:', error);
+    res.status(500).json({ message: 'Error auto-assigning tickets' });
   }
 });
 
@@ -164,13 +559,81 @@ router.post('/', authenticateToken, upload.array('attachments', 5), async (req, 
       console.error('Failed to send email notification:', emailError);
     }
     
-    // Emit real-time update
+    // Emit real-time updates
     const io = req.app.get('io');
-    io.emit('ticket:created', { ticket });
+    const emitToAll = req.app.get('emitToAll');
+    const emitToUser = req.app.get('emitToUser');
+    
+    // Emit to all users
+    emitToAll('ticket:created', { ticket });
+    
+    // Emit dashboard stats update
+    emitToAll('dashboard:stats:updated', { type: 'ticket_created' });
+    
+    // Emit notification to admins
+    const admins = await User.find({ role: 'admin', isActive: true });
+    admins.forEach(admin => {
+      emitToUser(admin._id.toString(), 'notification:new', {
+        type: 'ticket',
+        title: 'New Ticket Created',
+        message: `New ticket "${subject}" has been created`,
+        data: { ticketId: ticket._id, subject }
+      });
+    });
     
     res.status(201).json({ ticket });
   } catch (error) {
     console.error('Error creating ticket:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// Get ticket statistics
+router.get('/stats', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const user = await User.findById(userId);
+
+    let matchQuery = {};
+    
+    // If user is not admin, only show their own tickets
+    if (user && user.role !== 'admin') {
+      matchQuery.createdBy = userId;
+    }
+
+    const stats = await Ticket.aggregate([
+      { $match: matchQuery },
+      {
+        $group: {
+          _id: null,
+          totalTickets: { $sum: 1 },
+          openTickets: {
+            $sum: { $cond: [{ $eq: ['$status', 'open'] }, 1, 0] }
+          },
+          inProgressTickets: {
+            $sum: { $cond: [{ $eq: ['$status', 'in-progress'] }, 1, 0] }
+          },
+          resolvedTickets: {
+            $sum: { $cond: [{ $eq: ['$status', 'resolved'] }, 1, 0] }
+          },
+          closedTickets: {
+            $sum: { $cond: [{ $eq: ['$status', 'closed'] }, 1, 0] }
+          }
+        }
+      }
+    ]);
+
+    const result = stats[0] || {
+      totalTickets: 0,
+      openTickets: 0,
+      inProgressTickets: 0,
+      resolvedTickets: 0,
+      closedTickets: 0
+    };
+
+    res.json(result);
+  } catch (error) {
+    console.error('Error fetching ticket stats:', error);
     res.status(500).json({ message: 'Server error' });
   }
 });
@@ -245,9 +708,26 @@ router.patch('/:id', authenticateToken, async (req, res) => {
       { path: 'assignedTo', select: 'name email' }
     ]);
     
-    // Emit real-time update
+    // Emit real-time updates
     const io = req.app.get('io');
-    io.emit('ticket:updated', { ticket: updatedTicket });
+    const emitToAll = req.app.get('emitToAll');
+    const emitToUser = req.app.get('emitToUser');
+    
+    // Emit to all users
+    emitToAll('ticket:updated', { ticket: updatedTicket });
+    
+    // Emit dashboard stats update
+    emitToAll('dashboard:stats:updated', { type: 'ticket_updated' });
+    
+    // Emit notification to ticket creator
+    if (updatedTicket.createdBy && updatedTicket.createdBy._id.toString() !== req.user.id) {
+      emitToUser(updatedTicket.createdBy._id.toString(), 'notification:new', {
+        type: 'ticket',
+        title: 'Ticket Updated',
+        message: `Your ticket "${updatedTicket.subject}" has been updated`,
+        data: { ticketId: updatedTicket._id, subject: updatedTicket.subject }
+      });
+    }
     
     res.json({ ticket: updatedTicket });
   } catch (error) {
@@ -344,13 +824,36 @@ router.post('/:id/comments', authenticateToken, upload.array('attachments', 5), 
       }
     }
 
-    // Emit real-time update
+    // Emit real-time updates
     const io = req.app.get('io');
-    io.emit('ticket:commentAdded', { 
+    const emitToAll = req.app.get('emitToAll');
+    const emitToUser = req.app.get('emitToUser');
+    
+    // Emit to all users
+    emitToAll('ticket:commentAdded', { 
       ticketId, 
       comment: newComment,
       ticket: populatedTicket
     });
+    
+    // Emit notification to ticket creator and assigned agent
+    if (ticket.createdBy && ticket.createdBy.toString() !== userId) {
+      emitToUser(ticket.createdBy.toString(), 'notification:new', {
+        type: 'comment',
+        title: 'New Comment',
+        message: `New comment added to ticket "${ticket.subject}"`,
+        data: { ticketId: ticket._id, subject: ticket.subject }
+      });
+    }
+    
+    if (ticket.assignedTo && ticket.assignedTo.toString() !== userId) {
+      emitToUser(ticket.assignedTo.toString(), 'notification:new', {
+        type: 'comment',
+        title: 'New Comment',
+        message: `New comment added to ticket "${ticket.subject}"`,
+        data: { ticketId: ticket._id, subject: ticket.subject }
+      });
+    }
 
     res.json({ 
       message: 'Comment added successfully',
@@ -392,8 +895,26 @@ router.post('/:id/assign', authenticateToken, authorize(['agent', 'admin']), asy
 
     await ticket.save();
 
-    // Send email notification to assigned user
+    // Populate ticket for real-time updates
+    const populatedTicket = await ticket.populate(['assignedTo', 'createdBy', 'category']);
+
+    // Emit real-time updates
+    const emitToAll = req.app.get('emitToAll');
+    const emitToUser = req.app.get('emitToUser');
+    
+    // Emit to all users
+    emitToAll('ticket:assigned', { ticket: populatedTicket });
+    
+    // Emit notification to assigned user
     if (ticket.assignedTo) {
+      emitToUser(ticket.assignedTo.toString(), 'notification:new', {
+        type: 'assignment',
+        title: 'Ticket Assigned',
+        message: `You have been assigned to ticket "${ticket.subject}"`,
+        data: { ticketId: ticket._id, subject: ticket.subject }
+      });
+      
+      // Send email notification to assigned user
       const assignedUser = await User.findById(ticket.assignedTo);
       if (assignedUser) {
         await sendEmail({
@@ -411,7 +932,7 @@ router.post('/:id/assign', authenticateToken, authorize(['agent', 'admin']), asy
 
     res.json({ 
       message: 'Ticket assigned successfully',
-      ticket: await ticket.populate(['assignedTo', 'createdBy', 'category'])
+      ticket: populatedTicket
     });
   } catch (error) {
     console.error('Error assigning ticket:', error);
@@ -483,65 +1004,20 @@ router.delete('/:id', authenticateToken, async (req, res) => {
     
     await Ticket.findByIdAndDelete(req.params.id);
     
-    // Emit real-time update
-    const io = req.app.get('io');
-    io.emit('ticket:deleted', { ticketId: req.params.id });
+    // Emit real-time updates
+    const emitToAll = req.app.get('emitToAll');
+    
+    // Emit to all users
+    emitToAll('ticket:deleted', { ticketId: req.params.id });
+    
+    // Emit dashboard stats update
+    emitToAll('dashboard:stats:updated', { type: 'ticket_deleted' });
     
     res.json({
       message: 'Ticket deleted successfully'
     });
   } catch (error) {
     console.error('Error deleting ticket:', error);
-    res.status(500).json({ message: 'Server error' });
-  }
-});
-
-// Get ticket statistics
-router.get('/stats', authenticateToken, async (req, res) => {
-  try {
-    const userId = req.user.id;
-    const user = await User.findById(userId);
-
-    let matchQuery = {};
-    
-    // If user is not admin, only show their own tickets
-    if (user && user.role !== 'admin') {
-      matchQuery.createdBy = userId;
-    }
-
-    const stats = await Ticket.aggregate([
-      { $match: matchQuery },
-      {
-        $group: {
-          _id: null,
-          totalTickets: { $sum: 1 },
-          openTickets: {
-            $sum: { $cond: [{ $eq: ['$status', 'open'] }, 1, 0] }
-          },
-          inProgressTickets: {
-            $sum: { $cond: [{ $eq: ['$status', 'in-progress'] }, 1, 0] }
-          },
-          resolvedTickets: {
-            $sum: { $cond: [{ $eq: ['$status', 'resolved'] }, 1, 0] }
-          },
-          closedTickets: {
-            $sum: { $cond: [{ $eq: ['$status', 'closed'] }, 1, 0] }
-          }
-        }
-      }
-    ]);
-
-    const result = stats[0] || {
-      totalTickets: 0,
-      openTickets: 0,
-      inProgressTickets: 0,
-      resolvedTickets: 0,
-      closedTickets: 0
-    };
-
-    res.json(result);
-  } catch (error) {
-    console.error('Error fetching ticket stats:', error);
     res.status(500).json({ message: 'Server error' });
   }
 });

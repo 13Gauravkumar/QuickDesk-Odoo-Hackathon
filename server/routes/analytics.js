@@ -7,6 +7,43 @@ const Category = require('../models/Category');
 const fs = require('fs');
 const path = require('path');
 
+// Real-time analytics update endpoint
+router.get('/realtime', authenticateToken, authorize(['admin', 'agent']), async (req, res) => {
+  try {
+    const now = new Date();
+    const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
+    
+    // Get recent tickets
+    const recentTickets = await Ticket.find({
+      createdAt: { $gte: oneHourAgo }
+    })
+    .populate('createdBy', 'name')
+    .populate('category', 'name')
+    .sort('-createdAt')
+    .limit(10);
+    
+    // Get active users
+    const activeUsers = await User.countDocuments({
+      lastActiveAt: { $gte: new Date(now.getTime() - 15 * 60 * 1000) } // Last 15 minutes
+    });
+    
+    // Get tickets created in last hour
+    const ticketsLastHour = await Ticket.countDocuments({
+      createdAt: { $gte: oneHourAgo }
+    });
+    
+    res.json({
+      recentTickets,
+      activeUsers,
+      ticketsLastHour,
+      timestamp: now
+    });
+  } catch (error) {
+    console.error('Error fetching real-time analytics:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
 // Get analytics data
 router.get('/', authenticateToken, authorize(['admin', 'agent']), async (req, res) => {
   try {

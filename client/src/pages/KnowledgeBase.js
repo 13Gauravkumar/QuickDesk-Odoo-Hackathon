@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { useQuery } from 'react-query';
+import { useQuery, useQueryClient } from 'react-query';
 import { useAuth } from '../contexts/AuthContext';
+import { useSocket } from '../contexts/SocketContext';
 import { 
   Search, 
   BookOpen, 
@@ -29,6 +30,8 @@ import { format } from 'date-fns';
 
 const KnowledgeBase = () => {
   const { user } = useAuth();
+  const { socket } = useSocket();
+  const queryClient = useQueryClient();
   const [search, setSearch] = useState('');
   const [category, setCategory] = useState('');
   const [showCreateForm, setShowCreateForm] = useState(false);
@@ -62,6 +65,29 @@ const KnowledgeBase = () => {
       setSearchSuggestions([]);
     }
   }, [search, articles]);
+
+  // Real-time updates
+  useEffect(() => {
+    if (socket && socket.on) {
+      // Knowledge base events
+      socket.on('knowledge:article_viewed', (data) => {
+        console.log(`Article viewed: ${data.title}`);
+        // Optionally update view count in real-time
+      });
+
+      socket.on('knowledge:article_rated', (data) => {
+        queryClient.invalidateQueries(['knowledge-base']);
+        console.log(`Article rated: ${data.title}`);
+      });
+
+      return () => {
+        if (socket && socket.off) {
+          socket.off('knowledge:article_viewed');
+          socket.off('knowledge:article_rated');
+        }
+      };
+    }
+  }, [socket, queryClient]);
 
   const generateSearchSuggestions = (query, articles) => {
     const suggestions = [];

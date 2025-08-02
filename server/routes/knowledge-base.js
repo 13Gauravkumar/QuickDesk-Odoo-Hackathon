@@ -339,6 +339,16 @@ router.get('/:id', authenticateToken, async (req, res) => {
     // Increment view count
     article.views = (article.views || 0) + 1;
     
+    // Emit real-time update for article view
+    const emitToAll = req.app.get('emitToAll');
+    if (emitToAll) {
+      emitToAll('knowledge:article_viewed', { 
+        articleId: req.params.id, 
+        title: article.title,
+        views: article.views 
+      });
+    }
+    
     res.json(article);
   } catch (error) {
     console.error('Error fetching article:', error);
@@ -538,6 +548,17 @@ router.post('/:id/rate', authenticateToken, async (req, res) => {
     
     if (helpful) {
       article.helpful = (article.helpful || 0) + 1;
+    }
+    
+    // Emit real-time update for article rating
+    const emitToAll = req.app.get('emitToAll');
+    if (emitToAll) {
+      emitToAll('knowledge:article_rated', { 
+        articleId: req.params.id, 
+        title: article.title,
+        helpful: article.helpful,
+        helpful: helpful 
+      });
     }
     
     res.json({ message: 'Rating recorded successfully' });
