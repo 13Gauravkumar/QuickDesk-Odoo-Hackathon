@@ -39,7 +39,7 @@ RATE_LIMIT_MAX=100
 CLIENT_URL=http://localhost:3000
 
 # OpenAI Configuration
-OPENAI_API_KEY=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
+OPENAI_API_KEY=your-openai-api-key-here
 ```
 
 ### 2. Dependencies
