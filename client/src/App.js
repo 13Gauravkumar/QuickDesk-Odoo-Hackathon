@@ -17,7 +17,7 @@ import Admin from './pages/Admin';
 import Analytics from './pages/Analytics';
 import KnowledgeBase from './pages/KnowledgeBase';
 import Teams from './pages/Teams';
-import AIAgentDashboard from './pages/AIAgentDashboard';
+
 
 const AppContent = () => {
   const { user, isAuthenticated, loading } = useAuth();
@@ -91,7 +91,7 @@ const AppContent = () => {
           <Route path="/analytics" element={<PrivateRoute allowedRoles={['admin', 'agent']}><Analytics /></PrivateRoute>} />
           <Route path="/knowledge-base" element={<PrivateRoute><KnowledgeBase /></PrivateRoute>} />
           <Route path="/teams" element={<PrivateRoute><Teams /></PrivateRoute>} />
-          <Route path="/ai-agent" element={<PrivateRoute allowedRoles={['admin', 'agent']}><AIAgentDashboard /></PrivateRoute>} />
+
           <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Routes>
       </Layout>

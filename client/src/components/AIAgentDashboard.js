@@ -8,9 +8,11 @@ import {
   AlertCircle,
   BarChart3,
   Users,
-  Zap
+  Zap,
+  MessageSquare
 } from 'lucide-react';
 import toast from 'react-hot-toast';
+import AIChatbotWidget from './AIChatbotWidget';
 
 const AIAgentDashboard = () => {
   const { user } = useAuth();
@@ -19,6 +21,7 @@ const AIAgentDashboard = () => {
   const [periodStats, setPeriodStats] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedPeriod, setSelectedPeriod] = useState('7d');
+  const [isChatbotOpen, setIsChatbotOpen] = useState(false);
 
   useEffect(() => {
     fetchStats();
@@ -121,13 +124,22 @@ const AIAgentDashboard = () => {
             <p className="text-gray-600 dark:text-gray-400">Performance metrics and statistics</p>
           </div>
         </div>
-        <button
-          onClick={fetchStats}
-          className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-        >
-          <Zap className="w-4 h-4" />
-          <span>Refresh</span>
-        </button>
+        <div className="flex items-center space-x-2">
+          <button
+            onClick={() => setIsChatbotOpen(true)}
+            className="flex items-center space-x-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
+          >
+            <MessageSquare className="w-4 h-4" />
+            <span>AI Chat</span>
+          </button>
+          <button
+            onClick={fetchStats}
+            className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
+          >
+            <Zap className="w-4 h-4" />
+            <span>Refresh</span>
+          </button>
+        </div>
       </div>
 
       {/* Main Stats Cards */}
@@ -308,6 +320,12 @@ const AIAgentDashboard = () => {
           </div>
         </div>
       </div>
+
+      {/* AI Chatbot Widget */}
+      <AIChatbotWidget 
+        isOpen={isChatbotOpen}
+        onClose={() => setIsChatbotOpen(false)}
+      />
     </div>
   );
 };

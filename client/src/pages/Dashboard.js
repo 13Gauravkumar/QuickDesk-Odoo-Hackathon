@@ -49,13 +49,14 @@ import {
   Play,
   Pause,
   StopCircle,
-  Bot,
+
   User
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { format } from 'date-fns';
 import toast from 'react-hot-toast';
 import ChatbotWidget from '../components/ChatbotWidget';
+
 
 const Dashboard = () => {
   const { user } = useAuth();
@@ -72,6 +73,7 @@ const Dashboard = () => {
   const [activeUsers, setActiveUsers] = useState([]);
   const [liveActivity, setLiveActivity] = useState([]);
   const [lastStatsUpdate, setLastStatsUpdate] = useState(new Date());
+  const [isAIChatbotOpen, setIsAIChatbotOpen] = useState(false);
 
   // Real-time updates for all user roles
   useEffect(() => {
@@ -542,14 +544,7 @@ const Dashboard = () => {
           color: 'bg-orange-500 hover:bg-orange-600',
           role: 'admin'
         },
-        {
-          title: 'AI Agent Dashboard',
-          description: 'Monitor AI agent performance',
-          icon: Bot,
-          link: '/ai-agent',
-          color: 'bg-teal-500 hover:bg-teal-600',
-          role: 'admin'
-        },
+
         {
           title: 'System Reports',
           description: 'Generate and export reports',
@@ -684,14 +679,14 @@ const Dashboard = () => {
                 
                 {/* Live indicator text */}
                 {card.realTime && (
-                  <div className="absolute top-3 left-3">
-                    <span className="text-xs bg-green-100 text-green-800 px-2 py-1 rounded-full font-medium">
+                  <div className="absolute top-3 left-3 z-10">
+                    <span className="text-xs bg-green-100 text-green-800 px-2 py-1 rounded-full font-medium shadow-sm">
                       LIVE
                     </span>
                   </div>
                 )}
                 
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between pt-8">
                   <div className="flex-1">
                     <p className="text-sm font-medium text-gray-600 dark:text-gray-400">{card.title}</p>
                     <p className="text-3xl font-bold text-gray-900 dark:text-white mt-1">{card.value}</p>

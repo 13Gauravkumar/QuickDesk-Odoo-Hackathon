@@ -28,7 +28,7 @@ import {
 } from 'lucide-react';
 import { format } from 'date-fns';
 import toast from 'react-hot-toast';
-import AIAgentWidget from '../components/AIAgentWidget';
+
 
 const TicketDetail = () => {
   const { id } = useParams();
@@ -633,13 +633,7 @@ const TicketDetail = () => {
             </div>
           </div>
 
-          {/* AI Agent Widget */}
-          <AIAgentWidget 
-            ticket={ticket} 
-            onUpdate={() => {
-              queryClient.invalidateQueries(['ticket', id]);
-            }}
-          />
+
 
           {/* Assignment (for agents/admins) */}
           {(user?.role === 'agent' || user?.role === 'admin') && (

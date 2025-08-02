@@ -8,9 +8,11 @@ import {
   Clock, 
   BookOpen,
   MessageSquare,
-  Zap
+  Zap,
+  Brain
 } from 'lucide-react';
 import toast from 'react-hot-toast';
+import AIChatbotWidget from './AIChatbotWidget';
 
 const AIAgentWidget = ({ ticket, onUpdate }) => {
   const { user } = useAuth();
@@ -19,6 +21,7 @@ const AIAgentWidget = ({ ticket, onUpdate }) => {
   const [isResolving, setIsResolving] = useState(false);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [userMessage, setUserMessage] = useState('');
+  const [isChatbotOpen, setIsChatbotOpen] = useState(false);
 
   // Analyze ticket with AI agent
   const analyzeTicket = async () => {
@@ -241,6 +244,14 @@ const AIAgentWidget = ({ ticket, onUpdate }) => {
             <span>Get Response Suggestions</span>
           </button>
         )}
+
+        <button
+          onClick={() => setIsChatbotOpen(true)}
+          className="w-full flex items-center justify-center space-x-2 px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
+        >
+          <Brain className="w-4 h-4" />
+          <span>Ask AI Assistant</span>
+        </button>
       </div>
 
       {/* Response Suggestions */}
@@ -315,6 +326,12 @@ const AIAgentWidget = ({ ticket, onUpdate }) => {
           </div>
         </div>
       )}
+
+      {/* AI Chatbot Widget */}
+      <AIChatbotWidget 
+        isOpen={isChatbotOpen}
+        onClose={() => setIsChatbotOpen(false)}
+      />
     </div>
   );
 };

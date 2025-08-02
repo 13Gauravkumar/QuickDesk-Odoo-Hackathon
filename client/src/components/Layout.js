@@ -15,7 +15,7 @@ import {
   Users,
   Sun,
   Moon,
-  Bot
+
 } from 'lucide-react';
 import Notifications from './Notifications';
 
@@ -39,7 +39,7 @@ const Layout = ({ children }) => {
     { name: 'Profile', href: '/profile', icon: User },
     ...(user?.role === 'admin' ? [{ name: 'Admin', href: '/admin', icon: Settings }] : []),
     ...(user?.role === 'admin' || user?.role === 'agent' ? [{ name: 'Analytics', href: '/analytics', icon: BarChart3 }] : []),
-    ...(user?.role === 'admin' || user?.role === 'agent' ? [{ name: 'AI Agent', href: '/ai-agent', icon: Bot }] : [])
+
   ];
 
   const isActive = (href) => {

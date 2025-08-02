@@ -49,6 +49,12 @@ const KnowledgeBase = () => {
   const [aiInsights, setAiInsights] = useState('');
   const [relatedTopics, setRelatedTopics] = useState([]);
 
+  // Function to strip HTML tags from content for preview
+  const stripHtmlTags = (html) => {
+    if (!html) return '';
+    return html.replace(/<[^>]*>/g, '').trim();
+  };
+
   // Fetch knowledge base articles
   const { data: articles, isLoading } = useQuery('knowledge-base', async () => {
     const response = await fetch('/api/knowledge-base', {
@@ -448,7 +454,7 @@ const KnowledgeBase = () => {
                 </h3>
                 
                 <p className="text-gray-600 text-sm mb-4 line-clamp-3">
-                  {article.content}
+                  {stripHtmlTags(article.content)}
                 </p>
                 
                 {article.aiExplanation && (
@@ -516,7 +522,7 @@ const KnowledgeBase = () => {
               </h3>
               
               <p className="text-gray-600 text-sm mb-4 line-clamp-3">
-                {article.content}
+                {stripHtmlTags(article.content)}
               </p>
               
               <div className="flex items-center justify-between">
