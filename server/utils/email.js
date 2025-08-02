@@ -34,6 +34,127 @@ const sendEmail = async (options) => {
   }
 };
 
+// Enhanced notification functions
+const sendTicketCreatedNotification = async (ticket, user) => {
+  try {
+    const template = emailTemplates.ticketCreated(ticket, user);
+    await sendEmail({
+      email: user.email,
+      subject: template.subject,
+      html: template.html
+    });
+    console.log(`Ticket creation notification sent to ${user.email}`);
+  } catch (error) {
+    console.error('Failed to send ticket creation notification:', error);
+  }
+};
+
+const sendTicketStatusUpdateNotification = async (ticket, user, oldStatus, newStatus) => {
+  try {
+    const template = emailTemplates.ticketStatusUpdated(ticket, user, oldStatus, newStatus);
+    await sendEmail({
+      email: user.email,
+      subject: template.subject,
+      html: template.html
+    });
+    console.log(`Status update notification sent to ${user.email}`);
+  } catch (error) {
+    console.error('Failed to send status update notification:', error);
+  }
+};
+
+const sendTicketAssignedNotification = async (ticket, assignedUser) => {
+  try {
+    const template = emailTemplates.ticketAssigned({
+      userName: assignedUser.name,
+      ticketSubject: ticket.subject,
+      ticketId: ticket._id
+    });
+    await sendEmail({
+      email: assignedUser.email,
+      subject: template.subject,
+      html: template.html
+    });
+    console.log(`Assignment notification sent to ${assignedUser.email}`);
+  } catch (error) {
+    console.error('Failed to send assignment notification:', error);
+  }
+};
+
+const sendNewTicketNotificationToAdmins = async (ticket, creator) => {
+  try {
+    const User = require('../models/User');
+    const admins = await User.find({ role: 'admin', isActive: true });
+    
+    for (const admin of admins) {
+      const template = emailTemplates.newTicket({
+        userName: creator.name,
+        ticketSubject: ticket.subject,
+        ticketId: ticket._id
+      });
+      
+      await sendEmail({
+        email: admin.email,
+        subject: template.subject,
+        html: template.html
+      });
+      console.log(`New ticket notification sent to admin ${admin.email}`);
+    }
+  } catch (error) {
+    console.error('Failed to send new ticket notification to admins:', error);
+  }
+};
+
+const sendCommentNotification = async (ticket, comment, commenter) => {
+  try {
+    // Notify ticket creator if comment is from someone else
+    if (ticket.createdBy.toString() !== commenter._id.toString()) {
+      const User = require('../models/User');
+      const ticketCreator = await User.findById(ticket.createdBy);
+      
+      if (ticketCreator) {
+        const template = emailTemplates.newComment({
+          ticketSubject: ticket.subject,
+          ticketId: ticket._id,
+          commenterName: commenter.name,
+          commentContent: comment.content
+        });
+        
+        await sendEmail({
+          email: ticketCreator.email,
+          subject: template.subject,
+          html: template.html
+        });
+        console.log(`Comment notification sent to ticket creator ${ticketCreator.email}`);
+      }
+    }
+    
+    // Notify assigned agent if different from commenter
+    if (ticket.assignedTo && ticket.assignedTo.toString() !== commenter._id.toString()) {
+      const User = require('../models/User');
+      const assignedAgent = await User.findById(ticket.assignedTo);
+      
+      if (assignedAgent) {
+        const template = emailTemplates.newComment({
+          ticketSubject: ticket.subject,
+          ticketId: ticket._id,
+          commenterName: commenter.name,
+          commentContent: comment.content
+        });
+        
+        await sendEmail({
+          email: assignedAgent.email,
+          subject: template.subject,
+          html: template.html
+        });
+        console.log(`Comment notification sent to assigned agent ${assignedAgent.email}`);
+      }
+    }
+  } catch (error) {
+    console.error('Failed to send comment notification:', error);
+  }
+};
+
 // Email templates
 const emailTemplates = {
   ticketCreated: (ticket, user) => ({
@@ -52,6 +173,27 @@ const emailTemplates = {
           <p><strong>Created:</strong> ${new Date(ticket.createdAt).toLocaleString()}</p>
         </div>
         <p>We'll notify you when there are updates to your ticket.</p>
+        <p>Best regards,<br>QuickDesk Team</p>
+      </div>
+    `
+  }),
+
+  ticketStatusUpdated: (ticket, user, oldStatus, newStatus) => ({
+    subject: `Ticket Status Updated: ${ticket.subject}`,
+    html: `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+        <h2 style="color: #3B82F6;">Ticket Status Update</h2>
+        <p>Hello ${user.name},</p>
+        <p>Your ticket status has been updated. Here are the details:</p>
+        <div style="background: #f8f9fa; padding: 20px; border-radius: 8px; margin: 20px 0;">
+          <h3>Ticket Details:</h3>
+          <p><strong>Subject:</strong> ${ticket.subject}</p>
+          <p><strong>Previous Status:</strong> ${oldStatus}</p>
+          <p><strong>New Status:</strong> ${newStatus}</p>
+          <p><strong>Priority:</strong> ${ticket.priority}</p>
+          <p><strong>Updated:</strong> ${new Date(ticket.updatedAt).toLocaleString()}</p>
+        </div>
+        <p>Please log in to view the complete details and any additional updates.</p>
         <p>Best regards,<br>QuickDesk Team</p>
       </div>
     `
@@ -134,5 +276,10 @@ const emailTemplates = {
 
 module.exports = {
   sendEmail,
-  emailTemplates
+  emailTemplates,
+  sendTicketCreatedNotification,
+  sendTicketStatusUpdateNotification,
+  sendTicketAssignedNotification,
+  sendNewTicketNotificationToAdmins,
+  sendCommentNotification
 }; 

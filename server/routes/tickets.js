@@ -6,7 +6,15 @@ const Ticket = require('../models/Ticket');
 const Category = require('../models/Category');
 const User = require('../models/User');
 const { authenticateToken, authorize, canAccessTicket } = require('../middleware/auth');
-const { sendEmail, emailTemplates } = require('../utils/email');
+const { 
+  sendEmail, 
+  emailTemplates, 
+  sendTicketCreatedNotification, 
+  sendNewTicketNotificationToAdmins,
+  sendTicketStatusUpdateNotification,
+  sendTicketAssignedNotification,
+  sendCommentNotification
+} = require('../utils/email');
 
 const router = express.Router();
 
@@ -540,23 +548,15 @@ router.post('/', authenticateToken, upload.array('attachments', 5), async (req, 
       { path: 'assignedTo', select: 'name email' }
     ]);
     
-    // Send email notification to admins
+    // Send email notifications
     try {
-      const admins = await User.find({ role: 'admin', isActive: true });
-      for (const admin of admins) {
-        await sendEmail({
-          to: admin.email,
-          subject: 'New Ticket Created',
-          template: 'newTicket',
-          data: {
-            userName: req.user.name,
-            ticketSubject: subject,
-            ticketId: ticket._id
-          }
-        });
-      }
+      // Send notification to ticket creator
+      await sendTicketCreatedNotification(ticket, req.user);
+      
+      // Send notification to admins
+      await sendNewTicketNotificationToAdmins(ticket, req.user);
     } catch (emailError) {
-      console.error('Failed to send email notification:', emailError);
+      console.error('Failed to send email notifications:', emailError);
     }
     
     // Emit real-time updates
@@ -693,6 +693,7 @@ router.patch('/:id', authenticateToken, async (req, res) => {
     }
     
     const updateData = {};
+    const oldStatus = ticket.status;
     if (status) updateData.status = status;
     if (priority) updateData.priority = priority;
     if (subject) updateData.subject = subject;
@@ -707,6 +708,15 @@ router.patch('/:id', authenticateToken, async (req, res) => {
       { path: 'createdBy', select: 'name email' },
       { path: 'assignedTo', select: 'name email' }
     ]);
+    
+    // Send email notifications for status changes
+    if (status && status !== oldStatus) {
+      try {
+        await sendTicketStatusUpdateNotification(updatedTicket, updatedTicket.createdBy, oldStatus, status);
+      } catch (emailError) {
+        console.error('Failed to send status update notification:', emailError);
+      }
+    }
     
     // Emit real-time updates
     const io = req.app.get('io');
@@ -792,36 +802,11 @@ router.post('/:id/comments', authenticateToken, upload.array('attachments', 5), 
 
     const newComment = populatedTicket.comments[populatedTicket.comments.length - 1];
 
-    // Send email notification to ticket creator and assigned agent
-    const emailRecipients = new Set();
-    
-    if (ticket.createdBy && ticket.createdBy.toString() !== userId) {
-      const creator = await User.findById(ticket.createdBy);
-      if (creator) emailRecipients.add(creator.email);
-    }
-    
-    if (ticket.assignedTo && ticket.assignedTo.toString() !== userId) {
-      const assigned = await User.findById(ticket.assignedTo);
-      if (assigned) emailRecipients.add(assigned.email);
-    }
-
-    // Send email notifications
-    for (const email of emailRecipients) {
-      try {
-        await sendEmail({
-          to: email,
-          subject: `New Comment on Ticket: ${ticket.subject}`,
-          template: 'newComment',
-          data: {
-            ticketSubject: ticket.subject,
-            ticketId: ticket._id,
-            commentContent: content,
-            commenterName: req.user.name
-          }
-        });
-      } catch (emailError) {
-        console.error('Failed to send email notification:', emailError);
-      }
+    // Send email notifications for new comment
+    try {
+      await sendCommentNotification(populatedTicket, newComment, req.user);
+    } catch (emailError) {
+      console.error('Failed to send comment notification:', emailError);
     }
 
     // Emit real-time updates
@@ -917,16 +902,11 @@ router.post('/:id/assign', authenticateToken, authorize(['agent', 'admin']), asy
       // Send email notification to assigned user
       const assignedUser = await User.findById(ticket.assignedTo);
       if (assignedUser) {
-        await sendEmail({
-          to: assignedUser.email,
-          subject: 'Ticket Assigned',
-          template: 'ticketAssigned',
-          data: {
-            userName: assignedUser.name,
-            ticketSubject: ticket.subject,
-            ticketId: ticket._id
-          }
-        });
+        try {
+          await sendTicketAssignedNotification(populatedTicket, assignedUser);
+        } catch (emailError) {
+          console.error('Failed to send assignment notification:', emailError);
+        }
       }
     }
 
