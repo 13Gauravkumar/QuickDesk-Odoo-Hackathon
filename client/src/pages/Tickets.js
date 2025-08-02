@@ -134,6 +134,18 @@ const Tickets = () => {
     }
   };
 
+  const formatDate = (dateString) => {
+    if (!dateString) return 'N/A';
+    try {
+      const date = new Date(dateString);
+      if (isNaN(date.getTime())) return 'Invalid Date';
+      return format(date, 'MMM dd, yyyy');
+    } catch (error) {
+      console.error('Error formatting date:', error);
+      return 'Invalid Date';
+    }
+  };
+
   const clearFilters = () => {
     setSearch('');
     setStatusFilter('');
@@ -328,7 +340,7 @@ const Tickets = () => {
                       </div>
                       <div className="flex items-center space-x-1">
                         <Calendar className="w-4 h-4" />
-                        <span>{format(new Date(ticket.createdAt), 'MMM dd, yyyy')}</span>
+                        <span>{formatDate(ticket.createdAt)}</span>
                       </div>
                       <div className="flex items-center space-x-1">
                         <MessageSquare className="w-4 h-4" />

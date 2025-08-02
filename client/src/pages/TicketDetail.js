@@ -260,6 +260,30 @@ const TicketDetail = () => {
     }
   };
 
+  const formatDate = (dateString) => {
+    if (!dateString) return 'N/A';
+    try {
+      const date = new Date(dateString);
+      if (isNaN(date.getTime())) return 'Invalid Date';
+      return format(date, 'MMM dd, yyyy HH:mm');
+    } catch (error) {
+      console.error('Error formatting date:', error);
+      return 'Invalid Date';
+    }
+  };
+
+  const formatCommentDate = (dateString) => {
+    if (!dateString) return 'N/A';
+    try {
+      const date = new Date(dateString);
+      if (isNaN(date.getTime())) return 'Invalid Date';
+      return format(date, 'MMM dd, yyyy HH:mm');
+    } catch (error) {
+      console.error('Error formatting comment date:', error);
+      return 'Invalid Date';
+    }
+  };
+
   if (isLoading) {
     return (
       <div className="p-6">
@@ -496,14 +520,15 @@ const TicketDetail = () => {
                 ticket.comments.map((comment, index) => (
                   <div key={index} className="border-l-4 border-blue-500 pl-4 py-2">
                     <div className="flex items-start justify-between">
-                      <div className="flex items-center space-x-2 mb-2">
-                        <User className="w-4 h-4 text-gray-500" />
-                        <span className="font-medium text-gray-900">
-                          {comment.user?.name || 'Unknown User'}
-                        </span>
-                        <span className="text-sm text-gray-500">
-                          {format(new Date(comment.createdAt), 'MMM dd, yyyy HH:mm')}
-                        </span>
+                      <div className="flex items-center space-x-4 text-sm text-gray-500">
+                        <div className="flex items-center space-x-1">
+                          <User className="w-4 h-4" />
+                          <span>{comment.user?.name || 'Unknown'}</span>
+                        </div>
+                        <div className="flex items-center space-x-1">
+                          <Calendar className="w-4 h-4" />
+                          <span>{formatCommentDate(comment.createdAt)}</span>
+                        </div>
                       </div>
                     </div>
                     
@@ -583,7 +608,7 @@ const TicketDetail = () => {
                 <label className="block text-sm font-medium text-gray-700 mb-1">Created</label>
                 <div className="flex items-center space-x-2">
                   <Calendar className="w-4 h-4 text-gray-500" />
-                  <span>{format(new Date(ticket?.createdAt), 'MMM dd, yyyy HH:mm')}</span>
+                  <span>{formatDate(ticket?.createdAt)}</span>
                 </div>
               </div>
 
@@ -601,7 +626,7 @@ const TicketDetail = () => {
                 <label className="block text-sm font-medium text-gray-700 mb-1">Last Updated</label>
                 <div className="flex items-center space-x-2">
                   <Calendar className="w-4 h-4 text-gray-500" />
-                  <span>{format(new Date(ticket?.updatedAt), 'MMM dd, yyyy HH:mm')}</span>
+                  <span>{formatDate(ticket?.updatedAt)}</span>
                 </div>
               </div>
             </div>

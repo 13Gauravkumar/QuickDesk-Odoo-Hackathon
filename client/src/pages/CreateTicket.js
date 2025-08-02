@@ -39,6 +39,9 @@ const CreateTicket = () => {
         'Authorization': `Bearer ${localStorage.getItem('token')}`
       }
     });
+    if (!response.ok) {
+      throw new Error('Failed to fetch categories');
+    }
     return response.json();
   });
 
@@ -193,14 +196,32 @@ const CreateTicket = () => {
                   disabled={categoriesLoading}
                 >
                   <option value="">Select a category</option>
-                  {categoriesData?.categories?.map((category) => (
-                    <option key={category._id} value={category._id}>
-                      {category.name}
-                    </option>
-                  ))}
+                  {categoriesLoading ? (
+                    <option value="" disabled>Loading categories...</option>
+                  ) : categoriesData?.categories?.length > 0 ? (
+                    categoriesData.categories.map((category) => (
+                      <option key={category._id} value={category._id}>
+                        {category.name}
+                      </option>
+                    ))
+                  ) : (
+                    <>
+                      <option value="technical">Technical Support</option>
+                      <option value="billing">Billing & Payments</option>
+                      <option value="general">General Inquiry</option>
+                      <option value="bug">Bug Report</option>
+                      <option value="feature">Feature Request</option>
+                      <option value="account">Account Issues</option>
+                      <option value="product">Product Support</option>
+                      <option value="integration">Integration</option>
+                    </>
+                  )}
                 </select>
                 {errors.category && (
                   <p className="mt-1 text-sm text-red-600">{errors.category.message}</p>
+                )}
+                {categoriesLoading && (
+                  <p className="mt-1 text-sm text-gray-500">Loading categories...</p>
                 )}
               </div>
 

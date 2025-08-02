@@ -94,21 +94,38 @@ const emailTemplates = {
     `
   }),
 
-  newComment: (ticket, user, comment) => ({
-    subject: `New Comment on Ticket: ${ticket.subject}`,
+  newComment: (data) => ({
+    subject: `New Comment on Ticket: ${data.ticketSubject}`,
     html: `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-        <h2 style="color: #3B82F6;">New Comment</h2>
-        <p>Hello ${user.name},</p>
-        <p>A new comment has been added to your ticket:</p>
-        <div style="background: #f8f9fa; padding: 20px; border-radius: 8px; margin: 20px 0;">
-          <h3>Ticket Details:</h3>
-          <p><strong>Subject:</strong> ${ticket.subject}</p>
-          <p><strong>Comment:</strong> ${comment.content}</p>
-          <p><strong>By:</strong> ${comment.author.name}</p>
-          <p><strong>Time:</strong> ${new Date(comment.createdAt).toLocaleString()}</p>
+        <h2 style="color: #2563eb;">New Comment Added</h2>
+        <p>A new comment has been added to ticket: <strong>${data.ticketSubject}</strong></p>
+        <div style="background-color: #f3f4f6; padding: 20px; border-radius: 8px; margin: 20px 0;">
+          <p><strong>Comment by:</strong> ${data.commenterName}</p>
+          <p><strong>Comment:</strong></p>
+          <p style="background-color: white; padding: 15px; border-radius: 4px; margin: 10px 0;">
+            ${data.commentContent}
+          </p>
         </div>
-        <p>Please log in to respond if needed.</p>
+        <p>Ticket ID: #${data.ticketId}</p>
+        <p>Please log in to view the full ticket and respond if needed.</p>
+        <p>Best regards,<br>QuickDesk Team</p>
+      </div>
+    `
+  }),
+
+  newTicket: (data) => ({
+    subject: `New Ticket Created: ${data.ticketSubject}`,
+    html: `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+        <h2 style="color: #2563eb;">New Ticket Created</h2>
+        <p>A new support ticket has been created by ${data.userName}.</p>
+        <div style="background-color: #f3f4f6; padding: 20px; border-radius: 8px; margin: 20px 0;">
+          <h3 style="margin-top: 0;">${data.ticketSubject}</h3>
+          <p><strong>Ticket ID:</strong> #${data.ticketId}</p>
+          <p><strong>Created By:</strong> ${data.userName}</p>
+        </div>
+        <p>Please review and assign this ticket to an appropriate agent.</p>
         <p>Best regards,<br>QuickDesk Team</p>
       </div>
     `

@@ -8,6 +8,7 @@
     "server": "nodemon server/index.js",
     "client": "cd client && npm start",
     "build": "cd client && npm run build",
+    "seed": "node server/scripts/seedCategories.js",
     "install-all": "npm install && cd client && npm install",
     "start": "node server/index.js"
   },

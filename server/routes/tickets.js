@@ -42,44 +42,22 @@ const upload = multer({
 // @route   GET /api/tickets
 // @desc    Get all tickets with filtering and pagination
 // @access  Private
-router.get('/', async (req, res) => {
+router.get('/', authenticateToken, async (req, res) => {
   try {
-    const page = parseInt(req.query.page) || 1;
+    const page = parseInt(req.query.page) || 0;
     const limit = parseInt(req.query.limit) || 10;
-    const skip = (page - 1) * limit;
+    const skip = page * limit;
     
-    const { status, priority, category, search, sortBy, sortOrder } = req.query;
+    const { search, status, category, priority, sort = '-createdAt' } = req.query;
     
     // Build query
     let query = {};
     
-    // Role-based filtering
-    if (req.user.role === 'user') {
+    // If user is not admin, only show their own tickets
+    if (req.user && req.user.role !== 'admin') {
       query.createdBy = req.user.id;
-    } else if (req.user.role === 'agent') {
-      // Agents can see tickets assigned to them or unassigned tickets
-      query.$or = [
-        { assignedTo: req.user.id },
-        { assignedTo: null }
-      ];
     }
     
-    // Status filter
-    if (status) {
-      query.status = status;
-    }
-    
-    // Priority filter
-    if (priority) {
-      query.priority = priority;
-    }
-    
-    // Category filter
-    if (category) {
-      query.category = category;
-    }
-    
-    // Search filter
     if (search) {
       query.$or = [
         { subject: { $regex: search, $options: 'i' } },
@@ -87,16 +65,16 @@ router.get('/', async (req, res) => {
       ];
     }
     
-    // Build sort object
-    let sort = {};
-    if (sortBy === 'recent') {
-      sort.lastActivity = sortOrder === 'asc' ? 1 : -1;
-    } else if (sortBy === 'created') {
-      sort.createdAt = sortOrder === 'asc' ? 1 : -1;
-    } else if (sortBy === 'priority') {
-      sort.priority = sortOrder === 'asc' ? 1 : -1;
-    } else {
-      sort.createdAt = -1; // Default sort by newest
+    if (status) {
+      query.status = status;
+    }
+    
+    if (category) {
+      query.category = category;
+    }
+    
+    if (priority) {
+      query.priority = priority;
     }
     
     const tickets = await Ticket.find(query)
@@ -110,51 +88,42 @@ router.get('/', async (req, res) => {
     const total = await Ticket.countDocuments(query);
     
     res.json({
-      success: true,
-      data: tickets,
+      tickets,
       pagination: {
         page,
         limit,
         total,
-        pages: Math.ceil(total / limit)
+        totalPages: Math.ceil(total / limit)
       }
     });
   } catch (error) {
-    console.error(error);
+    console.error('Error fetching tickets:', error);
     res.status(500).json({ message: 'Server error' });
   }
 });
 
-// @route   POST /api/tickets
-// @desc    Create a new ticket
-// @access  Private
-router.post('/', upload.array('attachments', 5), [
-  body('subject', 'Subject is required').not().isEmpty(),
-  body('description', 'Description is required').not().isEmpty(),
-  body('category', 'Category is required').not().isEmpty()
-], async (req, res) => {
+// Create new ticket
+router.post('/', authenticateToken, upload.array('attachments', 5), async (req, res) => {
   try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({ errors: errors.array() });
+    const { subject, description, category, priority } = req.body;
+    
+    if (!subject || !description || !category || !priority) {
+      return res.status(400).json({ message: 'All fields are required' });
     }
     
-    const { subject, description, category, priority = 'medium', tags } = req.body;
-    
-    // Validate category exists
-    const categoryExists = await Category.findById(category);
-    if (!categoryExists) {
-      return res.status(400).json({ message: 'Category not found' });
+    // Handle file attachments
+    const attachments = [];
+    if (req.files && req.files.length > 0) {
+      for (const file of req.files) {
+        attachments.push({
+          filename: file.filename,
+          originalname: file.originalname,
+          size: file.size,
+          mimetype: file.mimetype,
+          path: file.path
+        });
+      }
     }
-    
-    // Process attachments
-    const attachments = req.files ? req.files.map(file => ({
-      filename: file.filename,
-      originalName: file.originalname,
-      path: file.path,
-      size: file.size,
-      mimetype: file.mimetype
-    })) : [];
     
     const ticket = new Ticket({
       subject,
@@ -162,38 +131,46 @@ router.post('/', upload.array('attachments', 5), [
       category,
       priority,
       createdBy: req.user.id,
-      tags: tags ? tags.split(',').map(tag => tag.trim()) : [],
-      attachments
+      attachments,
+      createdAt: new Date(),
+      updatedAt: new Date()
     });
     
     await ticket.save();
     
     // Populate references
-    await ticket.populate('category', 'name color');
-    await ticket.populate('createdBy', 'name email');
+    await ticket.populate([
+      { path: 'category', select: 'name color' },
+      { path: 'createdBy', select: 'name email' },
+      { path: 'assignedTo', select: 'name email' }
+    ]);
     
-    // Send email notification
+    // Send email notification to admins
     try {
-      const emailTemplate = emailTemplates.ticketCreated(ticket, req.user);
-      await sendEmail({
-        email: req.user.email,
-        subject: emailTemplate.subject,
-        html: emailTemplate.html
-      });
+      const admins = await User.find({ role: 'admin', isActive: true });
+      for (const admin of admins) {
+        await sendEmail({
+          to: admin.email,
+          subject: 'New Ticket Created',
+          template: 'newTicket',
+          data: {
+            userName: req.user.name,
+            ticketSubject: subject,
+            ticketId: ticket._id
+          }
+        });
+      }
     } catch (emailError) {
-      console.error('Email sending failed:', emailError);
+      console.error('Failed to send email notification:', emailError);
     }
     
     // Emit real-time update
     const io = req.app.get('io');
     io.emit('ticket:created', { ticket });
     
-    res.status(201).json({
-      success: true,
-      data: ticket
-    });
+    res.status(201).json({ ticket });
   } catch (error) {
-    console.error(error);
+    console.error('Error creating ticket:', error);
     res.status(500).json({ message: 'Server error' });
   }
 });
@@ -201,7 +178,7 @@ router.post('/', upload.array('attachments', 5), [
 // @route   GET /api/tickets/:id
 // @desc    Get single ticket
 // @access  Private
-router.get('/:id', canAccessTicket, async (req, res) => {
+router.get('/:id', authenticateToken, async (req, res) => {
   try {
     const ticket = await Ticket.findById(req.params.id)
       .populate('category', 'name color')
@@ -210,8 +187,8 @@ router.get('/:id', canAccessTicket, async (req, res) => {
       .populate({
         path: 'comments',
         populate: {
-          path: 'author',
-          select: 'name email avatar'
+          path: 'user',
+          select: 'name email'
         }
       });
     
@@ -219,157 +196,168 @@ router.get('/:id', canAccessTicket, async (req, res) => {
       return res.status(404).json({ message: 'Ticket not found' });
     }
     
-    res.json({
-      success: true,
-      data: ticket
-    });
+    // Check if user can access this ticket
+    if (req.user && req.user.role === 'user' && ticket.createdBy._id.toString() !== req.user.id) {
+      return res.status(403).json({ message: 'Access denied' });
+    }
+    
+    res.json({ ticket });
   } catch (error) {
-    console.error(error);
+    console.error('Error fetching ticket:', error);
     res.status(500).json({ message: 'Server error' });
   }
 });
 
-// @route   PUT /api/tickets/:id
-// @desc    Update ticket
-// @access  Private (Owner, Agent, Admin)
-router.put('/:id', canAccessTicket, upload.array('attachments', 5), async (req, res) => {
+// Update ticket
+router.patch('/:id', authenticateToken, async (req, res) => {
   try {
-    const { subject, description, priority, status, category, tags } = req.body;
+    const { status, priority, subject, description } = req.body;
+    const ticketId = req.params.id;
     
-    const ticket = await Ticket.findById(req.params.id);
+    const ticket = await Ticket.findById(ticketId);
     if (!ticket) {
       return res.status(404).json({ message: 'Ticket not found' });
     }
     
-    // Only agents and admins can change status
-    if (status && req.user.role === 'user') {
-      return res.status(403).json({ message: 'Not authorized to change status' });
+    // Check if user can update this ticket
+    if (req.user && req.user.role === 'user' && ticket.createdBy.toString() !== req.user.id) {
+      return res.status(403).json({ message: 'Access denied' });
     }
     
-    // Update fields
-    if (subject) ticket.subject = subject;
-    if (description) ticket.description = description;
-    if (priority) ticket.priority = priority;
-    if (category) ticket.category = category;
-    if (tags) ticket.tags = tags.split(',').map(tag => tag.trim());
-    
-    // Handle status change
-    if (status && status !== ticket.status) {
-      await ticket.updateStatus(status, req.user.id);
-    } else {
-      await ticket.save();
+    // Only agents and admins can update status
+    if (status && req.user && req.user.role === 'user') {
+      return res.status(403).json({ message: 'Only agents and admins can update ticket status' });
     }
     
-    // Process new attachments
+    const updateData = {};
+    if (status) updateData.status = status;
+    if (priority) updateData.priority = priority;
+    if (subject) updateData.subject = subject;
+    if (description) updateData.description = description;
+    
+    const updatedTicket = await Ticket.findByIdAndUpdate(
+      ticketId,
+      updateData,
+      { new: true, runValidators: true }
+    ).populate([
+      { path: 'category', select: 'name color' },
+      { path: 'createdBy', select: 'name email' },
+      { path: 'assignedTo', select: 'name email' }
+    ]);
+    
+    // Emit real-time update
+    const io = req.app.get('io');
+    io.emit('ticket:updated', { ticket: updatedTicket });
+    
+    res.json({ ticket: updatedTicket });
+  } catch (error) {
+    console.error('Error updating ticket:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// Add comment to ticket
+router.post('/:id/comments', authenticateToken, upload.array('attachments', 5), async (req, res) => {
+  try {
+    const { content } = req.body;
+    const ticketId = req.params.id;
+    const userId = req.user.id;
+
+    if (!content || content.trim().length === 0) {
+      return res.status(400).json({ message: 'Comment content is required' });
+    }
+
+    const ticket = await Ticket.findById(ticketId);
+    if (!ticket) {
+      return res.status(404).json({ message: 'Ticket not found' });
+    }
+
+    // Check if user can access this ticket
+    const user = await User.findById(userId);
+    if (user.role === 'user' && ticket.createdBy.toString() !== userId) {
+      return res.status(403).json({ message: 'Access denied' });
+    }
+
+    // Handle file attachments
+    const attachments = [];
     if (req.files && req.files.length > 0) {
-      const newAttachments = req.files.map(file => ({
-        filename: file.filename,
-        originalName: file.originalname,
-        path: file.path,
-        size: file.size,
-        mimetype: file.mimetype
-      }));
-      ticket.attachments.push(...newAttachments);
-      await ticket.save();
-    }
-    
-    await ticket.populate('category', 'name color');
-    await ticket.populate('createdBy', 'name email');
-    await ticket.populate('assignedTo', 'name email');
-    
-    // Send email notification for status change
-    if (status && status !== ticket.status) {
-      try {
-        const emailTemplate = emailTemplates.ticketUpdated(ticket, req.user, 'Status Update');
-        await sendEmail({
-          email: req.user.email,
-          subject: emailTemplate.subject,
-          html: emailTemplate.html
+      for (const file of req.files) {
+        attachments.push({
+          filename: file.filename,
+          originalname: file.originalname,
+          size: file.size,
+          mimetype: file.mimetype,
+          path: file.path
         });
-      } catch (emailError) {
-        console.error('Email sending failed:', emailError);
       }
     }
-    
-    // Emit real-time update
-    const io = req.app.get('io');
-    io.emit('ticket:updated', { ticket });
-    
-    res.json({
-      success: true,
-      data: ticket
-    });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: 'Server error' });
-  }
-});
 
-// @route   POST /api/tickets/:id/comments
-// @desc    Add comment to ticket
-// @access  Private
-router.post('/:id/comments', canAccessTicket, upload.array('attachments', 5), [
-  body('content', 'Comment content is required').not().isEmpty()
-], async (req, res) => {
-  try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({ errors: errors.array() });
-    }
-    
-    const { content, isInternal = false } = req.body;
-    
-    const ticket = await Ticket.findById(req.params.id);
-    if (!ticket) {
-      return res.status(404).json({ message: 'Ticket not found' });
-    }
-    
-    // Process attachments
-    const attachments = req.files ? req.files.map(file => ({
-      filename: file.filename,
-      originalName: file.originalname,
-      path: file.path,
-      size: file.size,
-      mimetype: file.mimetype
-    })) : [];
-    
-    // Add comment
-    await ticket.addComment(content, req.user.id, isInternal, attachments);
-    
-    // Populate comment author
-    const populatedTicket = await Ticket.findById(req.params.id)
-      .populate({
-        path: 'comments',
-        populate: {
-          path: 'author',
-          select: 'name email avatar'
-        }
-      });
-    
+    const comment = {
+      content: content.trim(),
+      user: userId,
+      attachments,
+      createdAt: new Date()
+    };
+
+    ticket.comments.push(comment);
+    await ticket.save();
+
+    // Populate user info for the comment
+    const populatedTicket = await ticket.populate([
+      { path: 'comments.user', select: 'name email' },
+      { path: 'createdBy', select: 'name email' },
+      { path: 'assignedTo', select: 'name email' },
+      { path: 'category', select: 'name color' }
+    ]);
+
     const newComment = populatedTicket.comments[populatedTicket.comments.length - 1];
+
+    // Send email notification to ticket creator and assigned agent
+    const emailRecipients = new Set();
     
-    // Send email notification
-    try {
-      const emailTemplate = emailTemplates.newComment(ticket, req.user, newComment);
-      await sendEmail({
-        email: req.user.email,
-        subject: emailTemplate.subject,
-        html: emailTemplate.html
-      });
-    } catch (emailError) {
-      console.error('Email sending failed:', emailError);
+    if (ticket.createdBy && ticket.createdBy.toString() !== userId) {
+      const creator = await User.findById(ticket.createdBy);
+      if (creator) emailRecipients.add(creator.email);
     }
     
+    if (ticket.assignedTo && ticket.assignedTo.toString() !== userId) {
+      const assigned = await User.findById(ticket.assignedTo);
+      if (assigned) emailRecipients.add(assigned.email);
+    }
+
+    // Send email notifications
+    for (const email of emailRecipients) {
+      try {
+        await sendEmail({
+          to: email,
+          subject: `New Comment on Ticket: ${ticket.subject}`,
+          template: 'newComment',
+          data: {
+            ticketSubject: ticket.subject,
+            ticketId: ticket._id,
+            commentContent: content,
+            commenterName: req.user.name
+          }
+        });
+      } catch (emailError) {
+        console.error('Failed to send email notification:', emailError);
+      }
+    }
+
     // Emit real-time update
     const io = req.app.get('io');
-    io.emit('ticket:comment', { ticketId: ticket._id, comment: newComment });
-    
-    res.json({
-      success: true,
-      data: newComment
+    io.emit('ticket:commentAdded', { 
+      ticketId, 
+      comment: newComment,
+      ticket: populatedTicket
+    });
+
+    res.json({ 
+      message: 'Comment added successfully',
+      comment: newComment
     });
   } catch (error) {
-    console.error(error);
+    console.error('Error adding comment:', error);
     res.status(500).json({ message: 'Server error' });
   }
 });
@@ -480,10 +468,8 @@ router.post('/:id/vote', authenticateToken, async (req, res) => {
   }
 });
 
-// @route   DELETE /api/tickets/:id
-// @desc    Delete ticket
-// @access  Private (Owner, Admin)
-router.delete('/:id', canAccessTicket, async (req, res) => {
+// Delete ticket
+router.delete('/:id', authenticateToken, async (req, res) => {
   try {
     const ticket = await Ticket.findById(req.params.id);
     if (!ticket) {
@@ -491,7 +477,7 @@ router.delete('/:id', canAccessTicket, async (req, res) => {
     }
     
     // Only owner or admin can delete
-    if (req.user.role !== 'admin' && ticket.createdBy.toString() !== req.user.id) {
+    if (req.user && req.user.role !== 'admin' && ticket.createdBy.toString() !== req.user.id) {
       return res.status(403).json({ message: 'Not authorized to delete this ticket' });
     }
     
@@ -502,11 +488,10 @@ router.delete('/:id', canAccessTicket, async (req, res) => {
     io.emit('ticket:deleted', { ticketId: req.params.id });
     
     res.json({
-      success: true,
       message: 'Ticket deleted successfully'
     });
   } catch (error) {
-    console.error(error);
+    console.error('Error deleting ticket:', error);
     res.status(500).json({ message: 'Server error' });
   }
 });
@@ -520,7 +505,7 @@ router.get('/stats', authenticateToken, async (req, res) => {
     let matchQuery = {};
     
     // If user is not admin, only show their own tickets
-    if (user.role !== 'admin') {
+    if (user && user.role !== 'admin') {
       matchQuery.createdBy = userId;
     }
 

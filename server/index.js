@@ -15,6 +15,8 @@ const authRoutes = require('./routes/auth');
 const ticketRoutes = require('./routes/tickets');
 const categoryRoutes = require('./routes/categories');
 const userRoutes = require('./routes/users');
+const analyticsRoutes = require('./routes/analytics');
+const knowledgeBaseRoutes = require('./routes/knowledge-base');
 const { authenticateToken } = require('./middleware/auth');
 const { sendEmail } = require('./utils/email');
 
@@ -87,9 +89,11 @@ app.set('io', io);
 
 // Routes
 app.use('/api/auth', authRoutes);
-app.use('/api/tickets', authenticateToken, ticketRoutes);
-app.use('/api/categories', authenticateToken, categoryRoutes);
-app.use('/api/users', authenticateToken, userRoutes);
+app.use('/api/tickets', ticketRoutes);
+app.use('/api/categories', categoryRoutes);
+app.use('/api/users', userRoutes);
+app.use('/api/analytics', analyticsRoutes);
+app.use('/api/knowledge-base', knowledgeBaseRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {

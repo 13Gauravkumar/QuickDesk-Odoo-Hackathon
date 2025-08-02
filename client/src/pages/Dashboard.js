@@ -9,7 +9,8 @@ import {
   AlertCircle, 
   Plus,
   Search,
-  Filter
+  Filter,
+  Calendar
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { format } from 'date-fns';
@@ -99,6 +100,18 @@ const Dashboard = () => {
       color: 'bg-indigo-500 hover:bg-indigo-600'
     });
   }
+
+  const formatDate = (dateString) => {
+    if (!dateString) return 'N/A';
+    try {
+      const date = new Date(dateString);
+      if (isNaN(date.getTime())) return 'Invalid Date';
+      return format(date, 'MMM dd, yyyy');
+    } catch (error) {
+      console.error('Error formatting date:', error);
+      return 'Invalid Date';
+    }
+  };
 
   return (
     <div className="p-6 space-y-6">
@@ -201,9 +214,10 @@ const Dashboard = () => {
                       }`}>
                         {ticket.status.charAt(0).toUpperCase() + ticket.status.slice(1)}
                       </span>
-                      <span className="text-xs text-gray-500">
-                        {format(new Date(ticket.createdAt), 'MMM dd, yyyy')}
-                      </span>
+                      <div className="flex items-center space-x-1 text-sm text-gray-500">
+                        <Calendar className="w-4 h-4" />
+                        <span>{formatDate(ticket.createdAt)}</span>
+                      </div>
                     </div>
                   </div>
                   <div className="text-right">

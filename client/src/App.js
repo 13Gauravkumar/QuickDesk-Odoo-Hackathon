@@ -14,6 +14,8 @@ import CreateTicket from './pages/CreateTicket';
 import Profile from './pages/Profile';
 import Admin from './pages/Admin';
 import NotFound from './pages/NotFound';
+import Analytics from './pages/Analytics';
+import KnowledgeBase from './pages/KnowledgeBase';
 
 const AppContent = () => {
   const { user, isAuthenticated } = useAuth();
@@ -72,6 +74,8 @@ const AppContent = () => {
               </PrivateRoute>
             } 
           />
+          <Route path="/analytics" element={<PrivateRoute allowedRoles={['admin', 'agent']}><Analytics /></PrivateRoute>} />
+          <Route path="/knowledge-base" element={<PrivateRoute><KnowledgeBase /></PrivateRoute>} />
           <Route path="*" element={<NotFound />} />
         </Routes>
       </Layout>
