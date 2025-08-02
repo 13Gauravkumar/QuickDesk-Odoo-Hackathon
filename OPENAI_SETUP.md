@@ -39,8 +39,10 @@ RATE_LIMIT_MAX=100
 CLIENT_URL=http://localhost:3000
 
 # OpenAI Configuration
-OPENAI_API_KEY=your-openai-api-key-here
+OPENAI_API_KEY=sk-your-actual-openai-api-key-here
 ```
+
+**Important**: Replace `sk-your-actual-openai-api-key-here` with your real OpenAI API key. You can get one from [OpenAI's platform](https://platform.openai.com/api-keys).
 
 ### 2. Dependencies
 The OpenAI package has been added to the project dependencies. Run:
@@ -156,4 +158,4 @@ Enable debug logging by setting `NODE_ENV=development` in your `.env` file.
 
 ---
 
-**Note**: The OpenAI API key provided is for demonstration purposes. For production use, please use your own API key and ensure proper security measures are in place. 
+**Note**: Make sure to use your own OpenAI API key and ensure proper security measures are in place for production use. 

@@ -14,7 +14,8 @@ import {
   BookOpen,
   Users,
   Sun,
-  Moon
+  Moon,
+  Bot
 } from 'lucide-react';
 import Notifications from './Notifications';
 
@@ -37,7 +38,8 @@ const Layout = ({ children }) => {
     { name: 'Knowledge Base', href: '/knowledge-base', icon: BookOpen },
     { name: 'Profile', href: '/profile', icon: User },
     ...(user?.role === 'admin' ? [{ name: 'Admin', href: '/admin', icon: Settings }] : []),
-    ...(user?.role === 'admin' || user?.role === 'agent' ? [{ name: 'Analytics', href: '/analytics', icon: BarChart3 }] : [])
+    ...(user?.role === 'admin' || user?.role === 'agent' ? [{ name: 'Analytics', href: '/analytics', icon: BarChart3 }] : []),
+    ...(user?.role === 'admin' || user?.role === 'agent' ? [{ name: 'AI Agent', href: '/ai-agent', icon: Bot }] : [])
   ];
 
   const isActive = (href) => {

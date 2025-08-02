@@ -11,6 +11,9 @@ yarn-error.log*
 .env.test.local
 .env.production.local
 
+# Documentation with sensitive information
+OPENAI_SETUP.md
+
 # Build outputs
 /build
 /dist
