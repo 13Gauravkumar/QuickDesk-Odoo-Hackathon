@@ -374,91 +374,108 @@ router.post('/:id/comments', canAccessTicket, upload.array('attachments', 5), [
   }
 });
 
-// @route   POST /api/tickets/:id/assign
-// @desc    Assign ticket to agent
-// @access  Private (Agent, Admin)
-router.post('/:id/assign', authorize('agent', 'admin'), async (req, res) => {
+// Assign ticket to agent
+router.post('/:id/assign', authenticateToken, authorize(['agent', 'admin']), async (req, res) => {
   try {
-    const { agentId } = req.body;
-    
-    if (!agentId) {
-      return res.status(400).json({ message: 'Agent ID is required' });
-    }
-    
-    // Verify agent exists and has agent role
-    const agent = await User.findById(agentId);
-    if (!agent || !['agent', 'admin'].includes(agent.role)) {
-      return res.status(400).json({ message: 'Invalid agent' });
-    }
-    
-    const ticket = await Ticket.findById(req.params.id);
+    const { assignedTo } = req.body;
+    const ticketId = req.params.id;
+
+    const ticket = await Ticket.findById(ticketId);
     if (!ticket) {
       return res.status(404).json({ message: 'Ticket not found' });
     }
-    
-    await ticket.assignTo(agentId, req.user.id);
-    
-    await ticket.populate('category', 'name color');
-    await ticket.populate('createdBy', 'name email');
-    await ticket.populate('assignedTo', 'name email');
-    
-    // Send email notification
-    try {
-      const emailTemplate = emailTemplates.ticketAssigned(ticket, req.user, agent);
-      await sendEmail({
-        email: req.user.email,
-        subject: emailTemplate.subject,
-        html: emailTemplate.html
-      });
-    } catch (emailError) {
-      console.error('Email sending failed:', emailError);
+
+    // If assignedTo is empty, unassign the ticket
+    if (!assignedTo) {
+      ticket.assignedTo = null;
+    } else {
+      // Verify the assigned user exists and is an agent
+      const assignedUser = await User.findById(assignedTo);
+      if (!assignedUser) {
+        return res.status(404).json({ message: 'Assigned user not found' });
+      }
+      
+      if (assignedUser.role !== 'agent' && assignedUser.role !== 'admin') {
+        return res.status(400).json({ message: 'Can only assign to agents or admins' });
+      }
+      
+      ticket.assignedTo = assignedTo;
     }
-    
-    // Emit real-time update
-    const io = req.app.get('io');
-    io.emit('ticket:assigned', { ticket });
-    
-    res.json({
-      success: true,
-      data: ticket
+
+    await ticket.save();
+
+    // Send email notification to assigned user
+    if (ticket.assignedTo) {
+      const assignedUser = await User.findById(ticket.assignedTo);
+      if (assignedUser) {
+        await sendEmail({
+          to: assignedUser.email,
+          subject: 'Ticket Assigned',
+          template: 'ticketAssigned',
+          data: {
+            userName: assignedUser.name,
+            ticketSubject: ticket.subject,
+            ticketId: ticket._id
+          }
+        });
+      }
+    }
+
+    res.json({ 
+      message: 'Ticket assigned successfully',
+      ticket: await ticket.populate(['assignedTo', 'createdBy', 'category'])
     });
   } catch (error) {
-    console.error(error);
+    console.error('Error assigning ticket:', error);
     res.status(500).json({ message: 'Server error' });
   }
 });
 
-// @route   POST /api/tickets/:id/vote
-// @desc    Vote on ticket
-// @access  Private
-router.post('/:id/vote', canAccessTicket, [
-  body('voteType', 'Vote type must be upvote or downvote').isIn(['upvote', 'downvote'])
-], async (req, res) => {
+// Vote on ticket
+router.post('/:id/vote', authenticateToken, async (req, res) => {
   try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({ errors: errors.array() });
-    }
-    
     const { voteType } = req.body;
-    
-    const ticket = await Ticket.findById(req.params.id);
+    const ticketId = req.params.id;
+    const userId = req.user.id;
+
+    if (!['upvote', 'downvote'].includes(voteType)) {
+      return res.status(400).json({ message: 'Invalid vote type' });
+    }
+
+    const ticket = await Ticket.findById(ticketId);
     if (!ticket) {
       return res.status(404).json({ message: 'Ticket not found' });
     }
-    
-    await ticket.vote(req.user.id, voteType);
-    
-    res.json({
-      success: true,
-      data: {
-        upvotes: ticket.upvotes.length,
-        downvotes: ticket.downvotes.length,
-        voteCount: ticket.voteCount
+
+    const voteField = voteType === 'upvote' ? 'upvotes' : 'downvotes';
+    const otherVoteField = voteType === 'upvote' ? 'downvotes' : 'upvotes';
+
+    // Check if user already voted
+    const hasVoted = ticket[voteField].includes(userId);
+    const hasOtherVote = ticket[otherVoteField].includes(userId);
+
+    if (hasVoted) {
+      // Remove vote
+      ticket[voteField] = ticket[voteField].filter(id => id.toString() !== userId);
+    } else {
+      // Add vote
+      ticket[voteField].push(userId);
+      
+      // Remove other vote if exists
+      if (hasOtherVote) {
+        ticket[otherVoteField] = ticket[otherVoteField].filter(id => id.toString() !== userId);
       }
+    }
+
+    await ticket.save();
+
+    res.json({ 
+      message: 'Vote recorded successfully',
+      upvotes: ticket.upvotes.length,
+      downvotes: ticket.downvotes.length
     });
   } catch (error) {
-    console.error(error);
+    console.error('Error voting on ticket:', error);
     res.status(500).json({ message: 'Server error' });
   }
 });
@@ -490,6 +507,56 @@ router.delete('/:id', canAccessTicket, async (req, res) => {
     });
   } catch (error) {
     console.error(error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// Get ticket statistics
+router.get('/stats', authenticateToken, async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const user = await User.findById(userId);
+
+    let matchQuery = {};
+    
+    // If user is not admin, only show their own tickets
+    if (user.role !== 'admin') {
+      matchQuery.createdBy = userId;
+    }
+
+    const stats = await Ticket.aggregate([
+      { $match: matchQuery },
+      {
+        $group: {
+          _id: null,
+          totalTickets: { $sum: 1 },
+          openTickets: {
+            $sum: { $cond: [{ $eq: ['$status', 'open'] }, 1, 0] }
+          },
+          inProgressTickets: {
+            $sum: { $cond: [{ $eq: ['$status', 'in-progress'] }, 1, 0] }
+          },
+          resolvedTickets: {
+            $sum: { $cond: [{ $eq: ['$status', 'resolved'] }, 1, 0] }
+          },
+          closedTickets: {
+            $sum: { $cond: [{ $eq: ['$status', 'closed'] }, 1, 0] }
+          }
+        }
+      }
+    ]);
+
+    const result = stats[0] || {
+      totalTickets: 0,
+      openTickets: 0,
+      inProgressTickets: 0,
+      resolvedTickets: 0,
+      closedTickets: 0
+    };
+
+    res.json(result);
+  } catch (error) {
+    console.error('Error fetching ticket stats:', error);
     res.status(500).json({ message: 'Server error' });
   }
 });

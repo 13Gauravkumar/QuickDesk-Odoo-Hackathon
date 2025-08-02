@@ -149,11 +149,10 @@ router.post('/logout', authenticateToken, (req, res) => {
   res.json({ success: true, message: 'Logged out successfully' });
 });
 
-// @route   PUT /api/auth/profile
-// @desc    Update user profile
-// @access  Private
-router.put('/profile', authenticateToken, [
-  body('name', 'Name is required').not().isEmpty()
+// Update user profile
+router.patch('/profile', authenticateToken, [
+  body('name').notEmpty().withMessage('Name is required'),
+  body('email').isEmail().withMessage('Valid email is required')
 ], async (req, res) => {
   try {
     const errors = validationResult(req);
@@ -161,40 +160,32 @@ router.put('/profile', authenticateToken, [
       return res.status(400).json({ errors: errors.array() });
     }
 
-    const { name, avatar } = req.body;
+    const { name, email } = req.body;
+    const userId = req.user.id;
 
-    const user = await User.findById(req.user.id);
-    if (!user) {
-      return res.status(404).json({ message: 'User not found' });
+    // Check if email is already taken by another user
+    const existingUser = await User.findOne({ email, _id: { $ne: userId } });
+    if (existingUser) {
+      return res.status(400).json({ message: 'Email is already in use' });
     }
 
-    user.name = name;
-    if (avatar) user.avatar = avatar;
+    const user = await User.findByIdAndUpdate(
+      userId,
+      { name, email },
+      { new: true, runValidators: true }
+    ).select('-password');
 
-    await user.save();
-
-    res.json({
-      success: true,
-      user: {
-        id: user._id,
-        name: user.name,
-        email: user.email,
-        role: user.role,
-        avatar: user.avatar
-      }
-    });
+    res.json({ user });
   } catch (error) {
-    console.error(error);
+    console.error('Error updating profile:', error);
     res.status(500).json({ message: 'Server error' });
   }
 });
 
-// @route   PUT /api/auth/change-password
-// @desc    Change password
-// @access  Private
-router.put('/change-password', authenticateToken, [
-  body('currentPassword', 'Current password is required').exists(),
-  body('newPassword', 'New password must be at least 6 characters').isLength({ min: 6 })
+// Change password
+router.post('/change-password', authenticateToken, [
+  body('currentPassword').notEmpty().withMessage('Current password is required'),
+  body('newPassword').isLength({ min: 8 }).withMessage('New password must be at least 8 characters')
 ], async (req, res) => {
   try {
     const errors = validationResult(req);
@@ -203,13 +194,14 @@ router.put('/change-password', authenticateToken, [
     }
 
     const { currentPassword, newPassword } = req.body;
+    const userId = req.user.id;
 
-    const user = await User.findById(req.user.id).select('+password');
+    const user = await User.findById(userId);
     if (!user) {
       return res.status(404).json({ message: 'User not found' });
     }
 
-    // Check current password
+    // Verify current password
     const isMatch = await user.matchPassword(currentPassword);
     if (!isMatch) {
       return res.status(400).json({ message: 'Current password is incorrect' });
@@ -219,9 +211,9 @@ router.put('/change-password', authenticateToken, [
     user.password = newPassword;
     await user.save();
 
-    res.json({ success: true, message: 'Password updated successfully' });
+    res.json({ message: 'Password changed successfully' });
   } catch (error) {
-    console.error(error);
+    console.error('Error changing password:', error);
     res.status(500).json({ message: 'Server error' });
   }
 });

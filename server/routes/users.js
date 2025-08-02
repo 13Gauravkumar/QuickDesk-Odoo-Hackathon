@@ -6,190 +6,90 @@ const { authenticateToken, authorize } = require('../middleware/auth');
 
 const router = express.Router();
 
-// @route   GET /api/users
-// @desc    Get all users (Admin only)
-// @access  Private (Admin only)
-router.get('/', authorize('admin'), async (req, res) => {
+// Get all users (admin only)
+router.get('/', authenticateToken, authorize(['admin']), async (req, res) => {
   try {
-    const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 10;
-    const skip = (page - 1) * limit;
-    
-    const { role, search, isActive } = req.query;
-    
-    // Build query
-    let query = {};
-    
-    if (role) {
-      query.role = role;
-    }
-    
-    if (isActive !== undefined) {
-      query.isActive = isActive === 'true';
-    }
-    
-    if (search) {
-      query.$or = [
-        { name: { $regex: search, $options: 'i' } },
-        { email: { $regex: search, $options: 'i' } }
-      ];
-    }
-    
-    const users = await User.find(query)
-      .select('-password')
-      .sort({ createdAt: -1 })
-      .skip(skip)
-      .limit(limit);
-    
-    const total = await User.countDocuments(query);
-    
-    res.json({
-      success: true,
-      data: users,
-      pagination: {
-        page,
-        limit,
-        total,
-        pages: Math.ceil(total / limit)
-      }
-    });
+    const users = await User.find({ isActive: true }).select('-password');
+    res.json({ users });
   } catch (error) {
-    console.error(error);
+    console.error('Error fetching users:', error);
     res.status(500).json({ message: 'Server error' });
   }
 });
 
-// @route   GET /api/users/agents
-// @desc    Get all agents (for ticket assignment)
-// @access  Private (Agent, Admin)
-router.get('/agents', authorize('agent', 'admin'), async (req, res) => {
+// Get agents only
+router.get('/agents', authenticateToken, authorize(['admin']), async (req, res) => {
   try {
     const agents = await User.find({ 
       role: { $in: ['agent', 'admin'] },
       isActive: true 
-    })
-    .select('name email role')
-    .sort({ name: 1 });
-    
-    res.json({
-      success: true,
-      data: agents
-    });
+    }).select('-password');
+    res.json({ agents });
   } catch (error) {
-    console.error(error);
+    console.error('Error fetching agents:', error);
     res.status(500).json({ message: 'Server error' });
   }
 });
 
-// @route   GET /api/users/:id
-// @desc    Get single user
-// @access  Private (Admin only)
-router.get('/:id', authorize('admin'), async (req, res) => {
+// Get single user
+router.get('/:id', authenticateToken, authorize(['admin']), async (req, res) => {
   try {
     const user = await User.findById(req.params.id).select('-password');
-    
     if (!user) {
       return res.status(404).json({ message: 'User not found' });
     }
-    
-    res.json({
-      success: true,
-      data: user
-    });
+    res.json({ user });
   } catch (error) {
-    console.error(error);
+    console.error('Error fetching user:', error);
     res.status(500).json({ message: 'Server error' });
   }
 });
 
-// @route   PUT /api/users/:id
-// @desc    Update user
-// @access  Private (Admin only)
-router.put('/:id', authorize('admin'), [
-  body('name', 'Name is required').not().isEmpty(),
-  body('email', 'Please include a valid email').isEmail(),
-  body('role', 'Role must be user, agent, or admin').isIn(['user', 'agent', 'admin'])
-], async (req, res) => {
+// Update user
+router.patch('/:id', authenticateToken, authorize(['admin']), async (req, res) => {
   try {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({ errors: errors.array() });
-    }
-    
     const { name, email, role, isActive } = req.body;
-    
-    const user = await User.findById(req.params.id);
+    const userId = req.params.id;
+
+    const updateData = {};
+    if (name) updateData.name = name;
+    if (email) updateData.email = email;
+    if (role) updateData.role = role;
+    if (typeof isActive === 'boolean') updateData.isActive = isActive;
+
+    const user = await User.findByIdAndUpdate(
+      userId,
+      updateData,
+      { new: true, runValidators: true }
+    ).select('-password');
+
     if (!user) {
       return res.status(404).json({ message: 'User not found' });
     }
-    
-    // Check if email is being changed and if it conflicts with existing user
-    if (email && email !== user.email) {
-      const existingUser = await User.findOne({ email });
-      if (existingUser) {
-        return res.status(400).json({ message: 'Email already exists' });
-      }
-    }
-    
-    // Update fields
-    if (name) user.name = name;
-    if (email) user.email = email;
-    if (role) user.role = role;
-    if (isActive !== undefined) user.isActive = isActive;
-    
-    await user.save();
-    
-    res.json({
-      success: true,
-      data: {
-        id: user._id,
-        name: user.name,
-        email: user.email,
-        role: user.role,
-        isActive: user.isActive,
-        avatar: user.avatar
-      }
-    });
+
+    res.json({ user });
   } catch (error) {
-    console.error(error);
+    console.error('Error updating user:', error);
     res.status(500).json({ message: 'Server error' });
   }
 });
 
-// @route   DELETE /api/users/:id
-// @desc    Delete user (soft delete)
-// @access  Private (Admin only)
-router.delete('/:id', authorize('admin'), async (req, res) => {
+// Soft delete user
+router.delete('/:id', authenticateToken, authorize(['admin']), async (req, res) => {
   try {
-    const user = await User.findById(req.params.id);
+    const user = await User.findByIdAndUpdate(
+      req.params.id,
+      { isActive: false },
+      { new: true }
+    );
+
     if (!user) {
       return res.status(404).json({ message: 'User not found' });
     }
-    
-    // Check if user has any tickets
-    const userTickets = await Ticket.countDocuments({
-      $or: [
-        { createdBy: req.params.id },
-        { assignedTo: req.params.id }
-      ]
-    });
-    
-    if (userTickets > 0) {
-      return res.status(400).json({ 
-        message: `Cannot delete user. They have ${userTickets} associated ticket(s).` 
-      });
-    }
-    
-    // Soft delete by setting isActive to false
-    user.isActive = false;
-    await user.save();
-    
-    res.json({
-      success: true,
-      message: 'User deleted successfully'
-    });
+
+    res.json({ message: 'User deleted successfully' });
   } catch (error) {
-    console.error(error);
+    console.error('Error deleting user:', error);
     res.status(500).json({ message: 'Server error' });
   }
 });

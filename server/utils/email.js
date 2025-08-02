@@ -77,21 +77,18 @@ const emailTemplates = {
     `
   }),
 
-  ticketAssigned: (ticket, user, agent) => ({
-    subject: `Ticket Assigned: ${ticket.subject}`,
+  ticketAssigned: (data) => ({
+    subject: `Ticket Assigned: ${data.ticketSubject}`,
     html: `
       <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-        <h2 style="color: #3B82F6;">Ticket Assigned</h2>
-        <p>Hello ${user.name},</p>
-        <p>Your ticket has been assigned to a support agent. Here are the details:</p>
-        <div style="background: #f8f9fa; padding: 20px; border-radius: 8px; margin: 20px 0;">
-          <h3>Ticket Details:</h3>
-          <p><strong>Subject:</strong> ${ticket.subject}</p>
-          <p><strong>Assigned To:</strong> ${agent.name}</p>
-          <p><strong>Status:</strong> ${ticket.status}</p>
-          <p><strong>Assigned At:</strong> ${new Date(ticket.assignedAt).toLocaleString()}</p>
+        <h2 style="color: #2563eb;">Ticket Assigned</h2>
+        <p>Hello ${data.userName},</p>
+        <p>A ticket has been assigned to you:</p>
+        <div style="background-color: #f3f4f6; padding: 20px; border-radius: 8px; margin: 20px 0;">
+          <h3 style="margin-top: 0;">${data.ticketSubject}</h3>
+          <p><strong>Ticket ID:</strong> #${data.ticketId}</p>
         </div>
-        <p>We'll keep you updated on the progress.</p>
+        <p>Please review and respond to this ticket as soon as possible.</p>
         <p>Best regards,<br>QuickDesk Team</p>
       </div>
     `
