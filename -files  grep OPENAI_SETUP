@@ -1,0 +1,5 @@
+[33m7284d21[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m)[m other featured added
+[33m3a4b14b[m fix: remove exposed API key and add security setup guide
+[33m5c02811[m[33m ([m[1;31morigin/main[m[33m, [m[1;31morigin/HEAD[m[33m)[m Fixed bugs in auth.js
+[33md6a7636[m Update index.js
+[33mc02dd02[m Fixed the frontend bugs
